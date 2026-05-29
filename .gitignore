@@ -1,0 +1,50 @@
+# ── Umgebung & Secrets ────────────────────────────────────────────────────────
+.env
+*.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtuelle Umgebungen ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+.uv/
+uv.lock
+
+# ── ECHO Orchestrator Laufzeit-Daten ─────────────────────────────────────────
+logs/
+*.jsonl
+
+# ── PyInstaller ───────────────────────────────────────────────────────────────
+*.spec
+launcher.py
+
+# ── IDEs & Editoren ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Test & Coverage ───────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
