@@ -4,8 +4,9 @@ ECHO Orchestrator — Chat UI
 from __future__ import annotations
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 import httpx
+from pathlib import Path
 from planner import Planner
 
 BG_DARK    = "#0A0A0A"   # Carbon Black
@@ -37,8 +38,11 @@ class EchoChatUI:
         self._state: str = "idle"
         self._spinner_idx: int = 0
         self._spinner_job = None
+        self._project_path: Path | None = None
+        self._echo_ruleset: str = ""
         self._build_ui()
         self._post_system("ECHO Orchestrator gestartet.")
+        self._load_ruleset()
         self._check_server()
 
     def _build_ui(self) -> None:
@@ -63,6 +67,19 @@ class EchoChatUI:
         tk.Label(title_bar, text="ECHO Orchestrator", bg=BG_DARK, fg=FG_ACCENT, font=("Consolas", 13, "bold")).pack(side=tk.LEFT)
         self._status_label = tk.Label(title_bar, text="● Verbinde...", bg=BG_DARK, fg=FG_DIMMED, font=("Consolas", 9))
         self._status_label.pack(side=tk.RIGHT)
+        # ── Projekt-Leiste ────────────────────────────────────────────────────
+        proj_bar = tk.Frame(self.root, bg=BG_BUTTON, pady=4)
+        proj_bar.pack(fill=tk.X, padx=16, pady=(0, 4))
+        tk.Button(proj_bar, text="⊞ Projekt öffnen", bg=BG_BUTTON, fg=FG_ACCENT,
+                  font=("Consolas", 9), relief=tk.FLAT, padx=10, pady=2,
+                  cursor="hand2", command=self._open_project).pack(side=tk.LEFT)
+        self._ruleset_btn = tk.Button(proj_bar, text="⊟ ECHO.md", bg=BG_BUTTON, fg=FG_DIMMED,
+                  font=("Consolas", 9), relief=tk.FLAT, padx=10, pady=2,
+                  cursor="hand2", command=self._open_ruleset_file, state=tk.DISABLED)
+        self._ruleset_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self._proj_label = tk.Label(proj_bar, text="Kein Projekt geöffnet",
+                                    bg=BG_BUTTON, fg=FG_DIMMED, font=("Consolas", 9))
+        self._proj_label.pack(side=tk.LEFT, padx=(10, 0))
         chat_frame = tk.Frame(self.root, bg=BG_DARK)
         chat_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
         self._chat = tk.Text(chat_frame, bg=BG_DARK, fg=FG_TEXT, font=("Consolas", 10), wrap=tk.WORD, state=tk.DISABLED, relief=tk.FLAT, borderwidth=0, insertbackground=FG_TEXT, selectbackground=BG_BUTTON, selectforeground=FG_TEXT, inactiveselectbackground=BG_DARK)
@@ -199,7 +216,11 @@ class EchoChatUI:
                 "description": (plan.get("zusammenfassung", "") + "\n\nSchritte:\n" + "\n".join(plan.get("schritte", []))),
                 "worker_type": plan.get("worker", "backend_worker"),
                 "priority": "normal",
-                "context": {},
+                "context": {
+                    "project_path": str(self._project_path) if self._project_path else "",
+                    "project_structure": self._get_project_context(),
+                    "echo_ruleset": self._echo_ruleset,
+                },
                 "files": plan.get("dateien", []),
             }
             with httpx.Client(base_url=ORCHESTRATOR_URL, timeout=30.0) as client:
@@ -313,6 +334,69 @@ class EchoChatUI:
         if self._spinner_job is not None:
             self.root.after_cancel(self._spinner_job)
             self._spinner_job = None
+
+    def _open_project(self) -> None:
+        path = filedialog.askdirectory(title="Projektordner auswählen")
+        if not path:
+            return
+        self._project_path = Path(path)
+        short = self._project_path.name
+        self._proj_label.configure(text=f"📁 {short}  ({self._project_path})", fg=FG_SUCCESS)
+        self._post_system(f"Projekt geöffnet: {self._project_path}")
+        # Struktur scannen
+        structure = self._scan_project(self._project_path)
+        self._post_system(f"Projektstruktur geladen — {len(structure)} Dateien erkannt.")
+        # ECHO.md automatisch einlesen
+        self._load_ruleset()
+
+    def _load_ruleset(self) -> None:
+        if not self._project_path:
+            return
+        echo_md = self._project_path / "ECHO.md"
+        # Fallback: ECHO.md im Orchestrator-Verzeichnis selbst
+        if not echo_md.exists():
+            echo_md = Path(__file__).parent / "ECHO.md"
+        if echo_md.exists():
+            try:
+                self._echo_ruleset = echo_md.read_text(encoding="utf-8")
+                self._ruleset_btn.configure(state=tk.NORMAL, fg=FG_SUCCESS)
+                self._post_system(f"ECHO Ruleset geladen: {echo_md.name} ({len(self._echo_ruleset.splitlines())} Zeilen)")
+            except OSError as exc:
+                self._post_error(f"ECHO.md konnte nicht gelesen werden: {exc}")
+        else:
+            self._echo_ruleset = ""
+            self._ruleset_btn.configure(state=tk.DISABLED, fg=FG_DIMMED)
+            self._post_warning("Keine ECHO.md gefunden — ohne Ruleset.")
+
+    def _open_ruleset_file(self) -> None:
+        import subprocess, sys
+        echo_md = (self._project_path / "ECHO.md") if self._project_path else None
+        if echo_md and echo_md.exists():
+            if sys.platform == "win32":
+                subprocess.Popen(["notepad", str(echo_md)])
+        else:
+            self._post_warning("ECHO.md nicht gefunden.")
+
+    def _scan_project(self, root: Path, max_files: int = 200) -> list[str]:
+        """Gibt relative Pfade aller relevanten Dateien zurück (kein __pycache__, .git etc.)"""
+        ignore = {".git", "__pycache__", ".venv", "venv", "node_modules", ".idea", ".vscode"}
+        result: list[str] = []
+        for p in sorted(root.rglob("*")):
+            if any(part in ignore for part in p.parts):
+                continue
+            if p.is_file():
+                result.append(str(p.relative_to(root)))
+            if len(result) >= max_files:
+                break
+        return result
+
+    def _get_project_context(self) -> str:
+        """Gibt die Projektstruktur als String für den Prompt zurück."""
+        if not self._project_path:
+            return ""
+        files = self._scan_project(self._project_path)
+        lines = "\n".join(f"  {f}" for f in files)
+        return f"Projektverzeichnis: {self._project_path}\n\nDateistruktur:\n{lines}"
 
     def _reset_task(self) -> None:
         self._current_task_id = None
