@@ -40,6 +40,7 @@ class EchoChatUI:
         self._spinner_job = None
         self._project_path: Path | None = None
         self._echo_ruleset: str = ""
+        self._current_diff: str = ""
         self._build_ui()
         self._post_system("ECHO Orchestrator gestartet.")
         self._load_ruleset()
@@ -193,7 +194,11 @@ class EchoChatUI:
 
     def _run_planner(self, user_request: str) -> None:
         try:
-            plan = self.planner.create_plan(user_request)
+            plan = self.planner.create_plan(
+                user_request,
+                project_context=self._get_project_context(),
+                project_path=str(self._project_path) if self._project_path else "",
+            )
             self._current_plan = plan
             formatted = self.planner.format_plan_for_chat(plan)
             self.root.after(0, self._spinner_stop)
@@ -253,7 +258,7 @@ class EchoChatUI:
                 self.root.after(0, self._post, f"Task {status}.", tag)
                 self.root.after(0, self._reset_task)
         except Exception as exc:
-            self.root.after(0, self._post_error, f"Gate-1-Fehler: {exc}")
+            self._handle_worker_failure(exc)
 
     def _poll_task_status(self, task_id: str) -> None:
         import time
@@ -290,12 +295,23 @@ class EchoChatUI:
             diff = data.get("diff", "")
             diff_lines = data.get("diff_lines", 0)
             branch = data.get("branch", "n/a")
-            self.root.after(0, self._post_system, f"Branch: {branch} | Diff: {diff_lines} Zeilen")
+            self.root.after(0, self._post_system, f"Branch: {branch} | {diff_lines} Zeilen geändert")
+
             if diff:
-                preview = "\n".join(diff.splitlines()[:40])
-                if diff_lines > 40:
-                    preview += f"\n... ({diff_lines - 40} weitere Zeilen)"
-                self.root.after(0, self._post, preview, "diff")
+                # Geänderte Dateien extrahieren
+                changed_files = [
+                    line.replace("diff --git a/", "").split(" b/")[0]
+                    for line in diff.splitlines()
+                    if line.startswith("diff --git")
+                ]
+                # Zusammenfassung anzeigen
+                summary_lines = ["Geänderte Dateien:"]
+                for f in changed_files:
+                    summary_lines.append(f"  — {f}")
+                self.root.after(0, self._post, "\n".join(summary_lines), "plan")
+                # Full-Diff für späteren Abruf speichern
+                self._current_diff = diff
+                self.root.after(0, self._add_full_diff_button)
             self.root.after(0, self._set_state, "awaiting_gate2")
             self.root.after(0, self._show_gates, "✓  Gate 2: Diff committen", "✗  Gate 2: Verwerfen")
         except Exception as exc:
@@ -334,6 +350,57 @@ class EchoChatUI:
         if self._spinner_job is not None:
             self.root.after_cancel(self._spinner_job)
             self._spinner_job = None
+
+    def _handle_worker_failure(self, exc: Exception) -> None:
+        """Zeigt strukturierte Fehleranalyse statt roher Exception."""
+        import json as _json
+        detail = str(exc)
+        # httpx StatusError enthält JSON im Detail
+        try:
+            # Versuche strukturierten Detail-Block zu extrahieren
+            if hasattr(exc, "response"):
+                data = exc.response.json()  # type: ignore
+                detail_obj = data.get("detail", {})
+                if isinstance(detail_obj, dict):
+                    lines = [
+                        f"✗ Worker fehlgeschlagen: {detail_obj.get('error', '?')}",
+                        f"  Worker:   {detail_obj.get('worker', '?')}",
+                        f"  Rollback: {detail_obj.get('rollback', '?')}",
+                    ]
+                    violations = detail_obj.get("rule_check", [])
+                    if violations:
+                        lines.append("  Regel-Checks:")
+                        for v in violations:
+                            lines.append(f"    — {v}")
+                    self.root.after(0, self._post, "\n".join(lines), "error")
+                    self.root.after(0, self._reset_task)
+                    return
+        except Exception:
+            pass
+        self.root.after(0, self._post_error, f"Gate-1-Fehler: {detail}")
+        self.root.after(0, self._reset_task)
+
+    def _add_full_diff_button(self) -> None:
+        """Fügt einen klickbaren 'Full Diff anzeigen' Link in den Chat ein."""
+        self._chat.configure(state=tk.NORMAL)
+        self._chat.insert(tk.END, "\n")
+        btn = tk.Button(
+            self._chat,
+            text="[ Full Diff anzeigen ]",
+            bg=BG_BUTTON, fg=FG_ACCENT,
+            font=("Consolas", 9), relief=tk.FLAT,
+            cursor="hand2",
+            command=self._show_full_diff,
+        )
+        self._chat.window_create(tk.END, window=btn)
+        self._chat.insert(tk.END, "\n")
+        self._chat.configure(state=tk.DISABLED)
+        self._chat.see(tk.END)
+
+    def _show_full_diff(self) -> None:
+        if not self._current_diff:
+            return
+        self._post("\n" + self._current_diff, "diff")
 
     def _open_project(self) -> None:
         path = filedialog.askdirectory(title="Projektordner auswählen")

@@ -1,0 +1,319 @@
+# AI WORKSPACE RULESET
+VERSION: 1.0
+LAST_UPDATED: 2026-05-29
+
+---
+
+# PURPOSE
+
+This ruleset defines operational, architectural, security and communication standards for AI-assisted workflows across development, creative production, automation and enterprise environments.
+
+The purpose is to maintain consistent quality, transparency, maintainability and professional execution across all AI-supported tasks and systems.
+
+---
+
+# CORE_PRINCIPLES
+
+- Human-controlled AI
+- Precision over hype
+- Stability over speed
+- Transparency over hidden automation
+- Modular systems over monolithic structures
+- Maintainability over short-term convenience
+- Operational clarity at all times
+
+---
+
+# RUNTIME_RULES
+
+- Keep prompts focused and compact
+- Avoid unnecessary context injection
+- Minimize token waste
+- Keep workflows deterministic whenever possible
+- Prefer explicit instructions over assumptions
+- Prevent context pollution
+- Preserve traceability for outputs and decisions
+- Never simulate completed work
+- Clearly mark placeholders and unfinished implementations
+
+---
+
+# ARCHITECTURE_RULES
+
+- Prefer modular architecture
+- Avoid monolithic files and systems
+- Separate UI, logic and orchestration layers
+- Keep systems isolated where possible
+- Prevent hidden dependencies
+- Prefer readable structures over clever abstractions
+- Use predictable naming conventions
+- Design systems for future replacement and scaling
+- Maintain clean project structures
+
+---
+
+# DEVELOPMENT_RULES
+
+- Keep functions focused and readable
+- Respect existing project structures
+- Avoid unnecessary complexity
+- Use structured logging
+- Handle failures explicitly
+- Never silently ignore errors
+- Validate external input
+- Prefer maintainable solutions over shortcuts
+- Avoid unnecessary dependencies
+- Explain risky operations before execution
+- Never overwrite existing user files without confirmation
+
+---
+
+# SECURITY_RULES
+
+- Never expose credentials or API keys
+- Never log secrets
+- Use environment variables for sensitive data
+- Validate all external input
+- Restrict dangerous filesystem operations
+- Never execute untrusted code automatically
+- No autonomous destructive actions
+- Require confirmation before irreversible operations
+- Prefer local processing for sensitive information
+- Maintain operational transparency
+
+---
+
+# AI_SECURITY
+
+- Human approval required for critical operations
+- AI must remain assistive, not autonomous
+- Preserve auditability of AI actions
+- Never leak confidential information into public systems
+- Restrict external API usage where sensitive data exists
+- Separate experimental and production environments
+- Preserve visibility into model behavior and context sources
+
+---
+
+# PERFORMANCE_RULES
+
+- Minimize unnecessary resource usage
+- Avoid oversized prompts
+- Prefer incremental processing
+- Use caching where appropriate
+- Avoid unnecessary scanning of large directories
+- Optimize for responsiveness and stability
+- Avoid memory-heavy operations without necessity
+
+---
+
+# WORKER_RULES
+
+- Workers must remain task-focused
+- Workers must not autonomously expand scope
+- Avoid uncontrolled restructuring
+- Preserve compatibility where possible
+- Keep outputs structured and understandable
+- Never hide changes or side effects
+- Verify operations before claiming success
+
+---
+
+# KNOWLEDGE_RULES
+
+- Index only approved sources
+- Preserve original source integrity
+- Never modify source material automatically
+- Maintain retrieval traceability
+- Ignore temporary or duplicate files
+- Separate archived and active knowledge
+- Use structured chunking for large datasets
+
+---
+
+# CONNECTOR_RULES
+
+- External integrations require explicit approval
+- Use read-only access by default
+- Log connector activity
+- Validate sources before indexing or synchronization
+- Avoid uncontrolled synchronization
+- Restrict automatic write access
+- Preserve source-system integrity
+- Keep integrations modular and disableable
+
+---
+
+# DATA_CLASSIFICATION
+
+LEVELS:
+- PUBLIC
+- INTERNAL
+- CONFIDENTIAL
+- RESTRICTED
+
+RULES:
+- Sensitive data should remain local whenever possible
+- Confidential data must not be exposed to public AI services
+- Access must follow least-privilege principles
+- Data handling must remain traceable
+
+---
+
+# AUDIT_RULES
+
+- Log prompt origins
+- Log context sources
+- Log generated outputs
+- Log external API interactions
+- Preserve execution history
+- Maintain operational traceability
+- Keep debugging visibility available
+
+---
+
+# COMMUNICATION_STYLE
+
+- Direct
+- Professional
+- Technically precise
+- Honest about limitations
+- No exaggerated marketing language
+- No artificial friendliness
+- Focus on operational impact and technical reality
+- Explain tradeoffs clearly
+- Prioritize clarity over decoration
+
+---
+
+# CREATIVE_WORKFLOW
+
+- Prioritize quality over speed
+- Preserve non-destructive workflows
+- Maintain organized project structures
+- Version important outputs
+- Preserve source assets
+- Focus on production-ready results
+- Maintain consistent standards across outputs
+
+---
+
+# VISUAL_STYLE_GUIDELINES
+
+- Prefer clean and structured layouts
+- Avoid visual clutter
+- Maintain strong hierarchy and spacing
+- Focus on precision and readability
+- Prefer timeless aesthetics over trend-driven design
+- Preserve consistency across systems and media
+
+---
+
+# PROJECT_STRUCTURE
+
+RECOMMENDED_DIRECTORIES:
+
+/backend
+/frontend
+/workers
+/connectors
+/knowledge
+/logs
+/docs
+/scripts
+/config
+
+RULES:
+- Keep structures predictable
+- Separate production and experimental systems
+- Avoid random file placement
+- Keep logs isolated
+- Keep integrations modular
+
+---
+
+# CONTEXT_LAYERING
+
+Do not inject all context into every task.
+
+Load only the relevant context layers for the active operation.
+
+EXAMPLES:
+
+DEVELOPMENT_TASK:
+- ARCHITECTURE_RULES
+- DEVELOPMENT_RULES
+- SECURITY_RULES
+
+CREATIVE_TASK:
+- COMMUNICATION_STYLE
+- CREATIVE_WORKFLOW
+- VISUAL_STYLE_GUIDELINES
+
+AI_OPERATION:
+- AI_SECURITY
+- PERFORMANCE_RULES
+- WORKER_RULES
+
+ENTERPRISE_INTEGRATION:
+- CONNECTOR_RULES
+- DATA_CLASSIFICATION
+- AUDIT_RULES
+
+---
+
+# IGNORE_RULES
+
+DIRECTORIES:
+- node_modules/
+- .git/
+- dist/
+- build/
+- coverage/
+- __pycache__/
+- venv/
+- .cache/
+- tmp/
+
+FILE_TYPES:
+- *.mp4
+- *.mov
+- *.zip
+- *.rar
+- *.7z
+- *.psd
+- *.ai
+- *.blend
+- *.iso
+- *.dll
+- *.exe
+
+---
+
+# STATUS_DEFINITIONS
+
+PLANNED:
+Concept only
+
+WIP:
+Partially implemented
+
+STABLE:
+Production ready
+
+BLOCKED:
+Dependency or issue prevents progress
+
+DEPRECATED:
+Avoid usage
+
+ARCHIVED:
+Reference only
+
+---
+
+# FINAL_PRINCIPLE
+
+AI systems must remain controllable, transparent and operationally understandable.
+
+Automation exists to support human expertise and professional workflows, not to replace responsibility, oversight or critical thinking.

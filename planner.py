@@ -12,10 +12,12 @@ import logging
 import httpx
 
 from config import get_settings
+from context_loader import load_context_with_meta
+from context_resolver import classify_task
 
 logger = logging.getLogger("echo.planner")
 
-SYSTEM_PROMPT = """Du bist ein technischer Entwicklungsplaner für Software-Projekte.
+_BASE_PROMPT = """Du bist ein technischer Entwicklungsplaner für Software-Projekte.
 
 Deine Aufgabe: Analysiere die Anfrage des Entwicklers und erstelle einen konkreten, strukturierten Plan.
 
@@ -35,10 +37,11 @@ Antworte IMMER in folgendem JSON-Format — nichts davor, nichts danach:
 }
 
 Worker-Typen:
-- backend_worker: FastAPI, Python, APIs, Datenmodelle
-- frontend_worker: UI-Komponenten, React, Qt
+- backend_worker: FastAPI, Python, APIs, Datenmodelle, Dateien erstellen
+- frontend_worker: UI-Komponenten, React, Qt, CSS
 - test_worker: Unit-Tests, Integrationstests
 - docs_worker: Dokumentation, README, Changelogs
+- retrieval_worker: Wissenssuche, Indexierung, Connector-Abfragen
 
 Sei präzise. Keine Füllsätze. Technisch korrekt."""
 
@@ -47,29 +50,46 @@ class Planner:
     """
     Analysiert Benutzeranfragen und erzeugt strukturierte Entwicklungspläne.
     Nutzt das lokale Ollama-Modell.
+    Lädt automatisch relevante Rule-Layer aus /.echo/ — niemals alles global.
     """
 
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def create_plan(self, user_request: str, project_context: str = "") -> dict:
+    def create_plan(
+        self,
+        user_request: str,
+        project_context: str = "",
+        project_path: str = "",
+    ) -> dict:
         """
         Sendet die Anfrage an Ollama und gibt einen strukturierten Plan zurück.
-        Gibt bei Fehlern ein Fallback-Dict zurück statt zu crashen.
+        Lädt relevante Rule-Layer basierend auf Task-Klassifikation.
         """
-        context_block = ""
-        if project_context:
-            context_block = f"\n\nProjektkontext:\n{project_context}"
+        # Task-Typ klassifizieren → relevante Layer laden
+        task_type = classify_task(user_request, "default")
+        rule_context, active_layers = load_context_with_meta(task_type, project_path or None)
 
-        prompt = (
-            f"{SYSTEM_PROMPT}{context_block}\n\n"
-            f"Entwickleranfrage: {user_request}\n\n"
-            f"Antworte nur mit dem JSON-Objekt:"
-        )
+        if active_layers:
+            logger.info("Planner Rule-Layer: %s", active_layers)
+
+        # Prompt zusammenbauen
+        prompt_parts = [_BASE_PROMPT]
+
+        if rule_context:
+            prompt_parts.append(f"## AKTIVE REGELN\n\n{rule_context}")
+
+        if project_context:
+            prompt_parts.append(f"## PROJEKTKONTEXT\n\n{project_context}")
+
+        prompt_parts.append(f"Entwickleranfrage: {user_request}\n\nAntworte nur mit dem JSON-Objekt:")
+
+        prompt = "\n\n---\n\n".join(prompt_parts)
 
         try:
             raw = self._call_ollama(prompt)
             plan = self._parse_response(raw)
+            plan["_active_layers"] = active_layers  # für Task-History
             return plan
         except Exception as exc:
             logger.error("Planner fehlgeschlagen: %s", exc)
@@ -81,6 +101,7 @@ class Planner:
                 "risiken": ["Planner konnte keine Analyse erstellen"],
                 "geschaetzte_komplexitaet": "unbekannt",
                 "fehler": str(exc),
+                "_active_layers": active_layers,
             }
 
     def _call_ollama(self, prompt: str) -> str:

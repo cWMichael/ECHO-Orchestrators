@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from config import Settings, get_settings
 from git_manager import GitManager, GitOperationError
+from task_history import save_task
 from models import (
     ApproveTaskRequest,
     HumanApproval,
@@ -283,19 +284,39 @@ async def approve_task(
     except Exception as exc:
         state.status = TaskStatus.FAILED
         logger.exception("Worker für Task %s fehlgeschlagen.", task_id)
-        # Auch bei Worker-Fehler: Branch aufräumen
+        # Branch aufräumen
         git = _get_git_manager(settings)
         branch_name = _task_branches.get(task_id)
+        rollback_ok = False
         if git is not None and branch_name:
             try:
-                await asyncio.to_thread(
-                    git.discard_and_delete_branch, branch_name
-                )
+                await asyncio.to_thread(git.discard_and_delete_branch, branch_name)
+                rollback_ok = True
             except GitOperationError as cleanup_exc:
                 logger.error("Branch-Cleanup fehlgeschlagen: %s", cleanup_exc)
+        # Task History: Fehler dokumentieren
+        save_task(
+            task_id=task_id,
+            worker=str(state.payload.worker_type),
+            files_changed=[],
+            context_layers=state.payload.context.get("active_layers", []),
+            status="failed",
+            summary=state.payload.title,
+            project_path=state.payload.context.get("project_path", ""),
+            error=str(exc),
+        )
+        # Strukturierte Fehlermeldung
+        recovery_info = {
+            "error": str(exc),
+            "worker": str(state.payload.worker_type),
+            "task_id": task_id,
+            "files_affected": state.payload.files,
+            "rollback": "erfolgreich" if rollback_ok else "fehlgeschlagen",
+            "rule_check": _check_rule_violations(str(exc)),
+        }
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Worker-Ausführung fehlgeschlagen: {exc}",
+            detail=recovery_info,
         ) from exc
 
     # ── Diff ermitteln → Gate 2 vorbereiten ───────────────────────────────────
@@ -434,6 +455,17 @@ async def approve_diff(
     state.status = TaskStatus.COMPLETED
     _task_diffs.pop(task_id, None)
 
+    # Task History speichern
+    save_task(
+        task_id=task_id,
+        worker=str(state.payload.worker_type),
+        files_changed=state.result.artifacts if state.result else [],
+        context_layers=state.payload.context.get("active_layers", []),
+        status="completed",
+        summary=state.payload.title,
+        project_path=state.payload.context.get("project_path", ""),
+    )
+
     return SubmitTaskResponse(
         task_id=task_id,
         status=state.status,
@@ -518,6 +550,25 @@ async def list_tasks(skip: int = 0, limit: int = 50) -> list[TaskStatusResponse]
 
 
 # ── Internal Helpers ──────────────────────────────────────────────────────────
+
+def _check_rule_violations(error_msg: str) -> list[str]:
+    """Gibt relevante Rule-Verletzungen basierend auf dem Fehlertext zurück."""
+    violations = []
+    msg = error_msg.lower()
+    if "permission" in msg or "access denied" in msg:
+        violations.append("SECURITY_RULES: Filesystem-Zugriff verweigert")
+    if "timeout" in msg:
+        violations.append("PERFORMANCE_RULES: Timeout überschritten")
+    if "no file" in msg or "not found" in msg:
+        violations.append("DEVELOPMENT_RULES: Datei nicht gefunden — Pfad prüfen")
+    if "syntax" in msg or "indentation" in msg:
+        violations.append("DEVELOPMENT_RULES: Code-Syntaxfehler im Output")
+    if "module" in msg or "import" in msg:
+        violations.append("ARCHITECTURE_RULES: Fehlende Abhängigkeit")
+    if not violations:
+        violations.append("Keine spezifische Rule-Verletzung erkannt — Logs prüfen")
+    return violations
+
 
 def _print_diff_to_console(task_id: str, diff: str, title: str) -> None:
     """
