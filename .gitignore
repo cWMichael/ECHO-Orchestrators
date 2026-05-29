@@ -8,3 +8,6 @@ logs/
 .venv/
 venv/
 task-history/
+frontend/
+hello.py
+test_hello.py
