@@ -309,7 +309,7 @@ async def approve_task(
         # Strukturierte Fehlermeldung
         recovery_info = {
             "error": str(exc),
-            "worker": str(state.payload.worker_type),
+            "worker": state.payload.worker_type.value,
             "task_id": task_id,
             "files_affected": state.payload.files,
             "rollback": "erfolgreich" if rollback_ok else "fehlgeschlagen",
@@ -535,7 +535,7 @@ async def get_task_diff(task_id: str) -> dict:
         "diff": diff,
         "diff_lines": len(diff.splitlines()) if diff else 0,
         "branch": _task_branches.get(task_id),
-        "worker": str(state.payload.worker_type),
+        "worker": state.payload.worker_type.value,
         "created": change_info.get("created", []),
         "modified": change_info.get("modified", []),
         "deleted": change_info.get("deleted", []),

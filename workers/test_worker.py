@@ -1,113 +1,129 @@
 """
 ECHO Orchestrator — Test Worker
-Spezialisiert auf automatisiertes Testschreiben: pytest Unit-Tests,
-Integration-Tests, Fixtures, parametrisierte Testfälle.
-
-Stufe 1 (jetzt):  Mock-Implementierung.
-Stufe 3 (später): build_prompt() liefert den Prompt, execute() delegiert
-                  an super().execute().
+Erzeugt Unit-Tests, Integrationstests, Smoke Checks, Regressionstests.
+Schreibt test_*.py Dateien ins Projektverzeichnis.
 """
-
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 
 from base_worker import BaseWorker
-from models import ModelBackend, TaskPayload, TokenUsage, WorkerResult, WorkerType
+from models import TaskPayload, WorkerResult, WorkerType
 
 logger = logging.getLogger("echo.workers.test")
+
+_FILE_PATTERN = re.compile(
+    r"===\s*FILE:\s*(.+?)\s*===\n(.*?)(?===\s*END\s*===|\Z)",
+    re.DOTALL,
+)
 
 
 class TestWorker(BaseWorker):
 
     worker_type = WorkerType.TEST
 
-    # ── Prompt Builder (für Stufe 3) ──────────────────────────────────────────
-
     def build_prompt(self, payload: TaskPayload) -> str:
-        files = "\n".join(f"  - {f}" for f in payload.files) or "  (keine Dateien angegeben)"
-        context_lines = "\n".join(
-            f"  {k}: {v}" for k, v in payload.context.items()
-        ) or "  (kein zusätzlicher Kontext)"
+        project_root = Path(payload.context.get("project_path", "")).resolve()
+        project_structure = payload.context.get("project_structure", "")
+        ruleset = payload.context.get("echo_ruleset", "")
 
-        return (
-            "Du bist ein erfahrener Test-Ingenieur (Python, pytest).\n"
-            "Schreibe vollständige, ausführbare Unit-Tests für die folgende Aufgabe:\n\n"
-            f"{payload.description}\n\n"
-            f"Betroffene Dateien:\n{files}\n\n"
-            f"Kontext:\n{context_lines}\n\n"
-            "Anforderungen:\n"
-            "  - Verwende pytest und pytest-asyncio für async Tests.\n"
-            "  - Decke Happy Path, Edge Cases und Fehlerfälle ab.\n"
-            "  - Nutze parametrisierte Tests wo sinnvoll.\n"
-            "  - Kein Platzhalter-Code. Jeder Test muss lauffähig sein."
+        file_contents = ""
+        if payload.files and project_root.exists():
+            blocks = []
+            for f in payload.files:
+                fp = project_root / f
+                if fp.exists():
+                    try:
+                        content = fp.read_text(encoding="utf-8", errors="replace")
+                        blocks.append(f"=== FILE: {f} ===\n{content}\n=== END ===")
+                    except OSError:
+                        pass
+            if blocks:
+                file_contents = "\n\n".join(blocks)
+
+        files_list = (
+            "\n".join(f"  - {f}" for f in payload.files)
+            if payload.files else "  (keine Dateien angegeben)"
         )
 
-    # ── Mock Execute (Stufe 1) ────────────────────────────────────────────────
-
-    async def execute(self, payload: TaskPayload) -> WorkerResult:
-        logger.info(
-            "TestWorker | task=%s | backend=%s [MOCK]",
-            payload.task_id,
-            self.backend,
+        prompt = (
+            "Du bist ein erfahrener Software-Tester mit Fokus auf Python.\n"
+            "Erstelle vollständige, ausführbare Tests.\n\n"
         )
 
-        mock_output = (
-            "# [MOCK] Unit-Tests generiert\n\n"
-            "import pytest\n"
-            "from httpx import AsyncClient, ASGITransport\n"
-            "from main import app\n\n\n"
-            "@pytest.mark.asyncio\n"
-            "async def test_health_check():\n"
-            "    async with AsyncClient(\n"
-            "        transport=ASGITransport(app=app), base_url='http://test'\n"
-            "    ) as client:\n"
-            "        response = await client.get('/health')\n"
-            "    assert response.status_code == 200\n"
-            "    assert response.json()['status'] == 'ok'\n\n\n"
-            "@pytest.mark.asyncio\n"
-            "@pytest.mark.parametrize('worker_type', ['backend_worker', 'test_worker'])\n"
-            "async def test_submit_task_pending(worker_type: str):\n"
-            "    async with AsyncClient(\n"
-            "        transport=ASGITransport(app=app), base_url='http://test'\n"
-            "    ) as client:\n"
-            "        response = await client.post(\n"
-            "            '/api/v1/tasks',\n"
-            "            json={\n"
-            "                'title': 'Test-Task',\n"
-            "                'description': 'Beschreibung für parametrisierten Test.',\n"
-            "                'worker_type': worker_type,\n"
-            "            },\n"
-            "        )\n"
-            "    assert response.status_code == 201\n"
-            "    data = response.json()\n"
-            "    assert 'task_id' in data\n"
-            "    assert data['status'] in ('awaiting_approval', 'approved')\n\n\n"
-            "@pytest.mark.asyncio\n"
-            "async def test_get_nonexistent_task_returns_404():\n"
-            "    async with AsyncClient(\n"
-            "        transport=ASGITransport(app=app), base_url='http://test'\n"
-            "    ) as client:\n"
-            "        response = await client.get('/api/v1/tasks/does-not-exist')\n"
-            "    assert response.status_code == 404\n"
+        if ruleset:
+            prompt += f"## ECHO RULESET (verbindlich)\n\n{ruleset}\n\n"
+
+        prompt += f"## Aufgabe\n\n{payload.description}\n\n"
+
+        if project_structure:
+            prompt += f"## Projektstruktur\n\n{project_structure}\n\n"
+
+        prompt += f"## Zu testende Dateien\n\n{files_list}\n\n"
+
+        if file_contents:
+            prompt += f"## Zu testender Code\n\n{file_contents}\n\n"
+
+        prompt += (
+            "## Test-Standards\n\n"
+            "- Verwende pytest\n"
+            "- Dateiname beginnt mit test_ (z.B. test_hello.py)\n"
+            "- Jede Funktion beginnt mit test_\n"
+            "- Smoke Checks: grundlegende Funktionalität\n"
+            "- Edge Cases: Grenzwerte und Fehlerbehandlung\n"
+            "- Keine externen Abhängigkeiten außer pytest und der zu testenden Datei\n"
+            "- Vollständig ausführbar, kein Platzhalter-Code\n\n"
+            "## Ausgabeformat — ZWINGEND EINHALTEN\n\n"
+            "=== FILE: test_dateiname.py ===\n"
+            "<vollständiger Test-Code>\n"
+            "=== END ===\n\n"
+            "Nur relativer Pfad. Keine absoluten Pfade. "
+            "Kein Text außerhalb der FILE-Blöcke."
         )
+        return prompt
 
-        mock_tokens = TokenUsage(prompt_tokens=1800, completion_tokens=800)
+    def parse_output(self, raw: str, payload: TaskPayload) -> WorkerResult:
+        matches = _FILE_PATTERN.findall(raw)
+        project_root = Path(payload.context.get("project_path", "")).resolve()
+        if not project_root.exists():
+            project_root = Path.cwd()
 
-        result = WorkerResult(
+        created: list[str] = []
+        modified: list[str] = []
+
+        for file_path_str, content in matches:
+            rel_path = Path(file_path_str.strip())
+            if rel_path.is_absolute() or ".." in rel_path.parts:
+                logger.warning("Unsicherer Pfad übersprungen: %s", rel_path)
+                continue
+            file_path = project_root / rel_path
+            is_new = not file_path.exists()
+            try:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(content, encoding="utf-8")
+                (created if is_new else modified).append(str(rel_path))
+                logger.info("Test-Datei %s: %s", "erstellt" if is_new else "geändert", file_path)
+            except OSError as exc:
+                logger.error("Fehler beim Schreiben von %s: %s", file_path, exc)
+
+        all_written = created + modified
+        if not all_written:
+            logger.warning("TestWorker: Keine FILE-Blöcke im Output. %.200s", raw)
+
+        return WorkerResult(
             task_id=payload.task_id,
             worker_type=self.worker_type,
             model_backend=self.backend,
             model_name=self._active_model_name(),
-            success=True,
-            output=mock_output,
-            artifacts=["tests/test_api.py"],
+            success=len(all_written) > 0,
+            output=raw,
+            artifacts=all_written or payload.files,
+            error=None if all_written else "Keine Test-Dateien im Output gefunden.",
+            extra={"created": created, "modified": modified, "deleted": []},
         )
 
-        self._write_metric_log(
-            payload=payload,
-            result=result,
-            token_usage=mock_tokens,
-            duration=0.0,
-        )
-        return result
+    async def execute(self, payload: TaskPayload) -> WorkerResult:
+        logger.info("TestWorker | task=%s | model=%s", payload.task_id, self._active_model_name())
+        return await super().execute(payload)
