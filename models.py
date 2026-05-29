@@ -107,6 +107,10 @@ class WorkerResult(BaseModel):
         default=None,
         description="Error message if success=False",
     )
+    extra: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Worker-specific metadata (e.g. created/modified/deleted file lists)",
+    )
     completed_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

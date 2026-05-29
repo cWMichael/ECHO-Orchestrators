@@ -91,43 +91,55 @@ class BackendWorker(BaseWorker):
 
     def parse_output(self, raw: str, payload: TaskPayload) -> WorkerResult:
         matches = _FILE_PATTERN.findall(raw)
-        written: list[str] = []
 
         # Projektverzeichnis aus Kontext — fallback: CWD
         project_root = Path(payload.context.get("project_path", "")).resolve()
         if not project_root.exists():
             project_root = Path.cwd()
 
+        created: list[str] = []
+        modified: list[str] = []
+
         for file_path_str, content in matches:
             rel_path = Path(file_path_str.strip())
-            # Sicherheit: keine absoluten Pfade, kein Path-Traversal
             if rel_path.is_absolute() or ".." in rel_path.parts:
                 logger.warning("Unsicherer Pfad übersprungen: %s", rel_path)
                 continue
             file_path = project_root / rel_path
+            is_new = not file_path.exists()
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(content, encoding="utf-8")
-                written.append(str(rel_path))
-                logger.info("Datei geschrieben: %s", file_path)
+                if is_new:
+                    created.append(str(rel_path))
+                else:
+                    modified.append(str(rel_path))
+                logger.info("Datei %s: %s", "erstellt" if is_new else "geändert", file_path)
             except OSError as exc:
                 logger.error("Fehler beim Schreiben von %s: %s", file_path, exc)
 
-        if not written:
-            logger.warning(
-                "BackendWorker: Keine FILE-Blöcke im Output gefunden. "
-                "Rohausgabe: %.200s", raw
-            )
+        all_written = created + modified
+
+        if not all_written:
+            logger.warning("BackendWorker: Keine FILE-Blöcke im Output. Rohausgabe: %.200s", raw)
+
+        # Änderungsinfo als strukturiertes Artefakt mitgeben
+        change_summary = {
+            "created": created,
+            "modified": modified,
+            "deleted": [],
+        }
 
         return WorkerResult(
             task_id=payload.task_id,
             worker_type=self.worker_type,
             model_backend=self.backend,
             model_name=self._active_model_name(),
-            success=len(written) > 0,
+            success=len(all_written) > 0,
             output=raw,
-            artifacts=written or payload.files,
-            error=None if written else "Keine Dateien im Output gefunden.",
+            artifacts=all_written or payload.files,
+            error=None if all_written else "Keine Dateien im Output gefunden.",
+            extra=change_summary,
         )
 
     # ── execute() ─────────────────────────────────────────────────────────────

@@ -297,19 +297,26 @@ class EchoChatUI:
             branch = data.get("branch", "n/a")
             self.root.after(0, self._post_system, f"Branch: {branch} | {diff_lines} Zeilen geändert")
 
+            # Strukturierte Änderungsübersicht
+            worker   = data.get("worker", "Worker")
+            created  = data.get("created", [])
+            modified = data.get("modified", [])
+            deleted  = data.get("deleted", [])
+            summary  = data.get("summary", "")
+
+            lines = [f"Worker: {worker}", ""]
+            lines.append("Erstellt:")
+            lines += [f"  + {f}" for f in created] if created else ["  — keine"]
+            lines.append("Geändert:")
+            lines += [f"  ~ {f}" for f in modified] if modified else ["  — keine"]
+            lines.append("Gelöscht:")
+            lines += [f"  - {f}" for f in deleted] if deleted else ["  — keine"]
+            if summary:
+                lines += ["", f"Zusammenfassung: {summary}"]
+
+            self.root.after(0, self._post, "\n".join(lines), "plan")
+
             if diff:
-                # Geänderte Dateien extrahieren
-                changed_files = [
-                    line.replace("diff --git a/", "").split(" b/")[0]
-                    for line in diff.splitlines()
-                    if line.startswith("diff --git")
-                ]
-                # Zusammenfassung anzeigen
-                summary_lines = ["Geänderte Dateien:"]
-                for f in changed_files:
-                    summary_lines.append(f"  — {f}")
-                self.root.after(0, self._post, "\n".join(summary_lines), "plan")
-                # Full-Diff für späteren Abruf speichern
                 self._current_diff = diff
                 self.root.after(0, self._add_full_diff_button)
             self.root.after(0, self._set_state, "awaiting_gate2")

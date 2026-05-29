@@ -320,13 +320,33 @@ async def approve_task(
         ) from exc
 
     # ── Diff ermitteln → Gate 2 vorbereiten ───────────────────────────────────
-    git = _get_git_manager(settings)
+    # Wenn Worker Dateien geschrieben hat, nutzen wir das direkt als "Diff"
+    project_path = state.payload.context.get("project_path", "")
+    written_files = result.artifacts if result else []
     diff: str = ""
-    if git is not None:
-        try:
-            diff = await asyncio.to_thread(git.get_code_diff)
-        except GitOperationError as exc:
-            logger.warning("git diff fehlgeschlagen: %s", exc)
+
+    if written_files:
+        # Synthetischen Diff aus geschriebenen Dateien bauen
+        diff_lines = [f"=== Worker Output: {len(written_files)} Datei(en) geschrieben ==="]
+        for rel_path in written_files:
+            full_path = (Path(project_path) / rel_path) if project_path else Path(rel_path)
+            diff_lines.append(f"\n+++ {rel_path}")
+            if full_path.exists():
+                try:
+                    content = full_path.read_text(encoding="utf-8", errors="replace")
+                    for line in content.splitlines():
+                        diff_lines.append(f"+{line}")
+                except OSError:
+                    diff_lines.append("+ [Datei nicht lesbar]")
+        diff = "\n".join(diff_lines)
+    else:
+        # Fallback: Git-Diff im Orchestrator-Repo
+        git = _get_git_manager(settings)
+        if git is not None:
+            try:
+                diff = await asyncio.to_thread(git.get_code_diff)
+            except GitOperationError as exc:
+                logger.warning("git diff fehlgeschlagen: %s", exc)
 
     if diff:
         _task_diffs[task_id] = diff
@@ -432,7 +452,13 @@ async def approve_diff(
     )
 
     commit_hash = ""
-    if git is not None:
+    project_path = state.payload.context.get("project_path", "")
+    written_files = state.result.artifacts if state.result else []
+
+    # Nur committen wenn Dateien im Orchestrator-Repo geändert wurden
+    # (nicht für externe Projektdateien)
+    orchestrator_changes = not written_files or not project_path
+    if git is not None and orchestrator_changes:
         try:
             commit_hash = await asyncio.to_thread(
                 git.commit_and_push,
@@ -451,6 +477,12 @@ async def approve_diff(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Commit/Push fehlgeschlagen: {exc}",
             ) from exc
+    elif written_files and project_path:
+        logger.info(
+            "Task %s: %d Datei(en) ins Projekt geschrieben — kein Orchestrator-Commit.",
+            task_id, len(written_files),
+        )
+        commit_hash = f"project:{len(written_files)}_files"
 
     state.status = TaskStatus.COMPLETED
     _task_diffs.pop(task_id, None)
@@ -494,12 +526,19 @@ async def get_task_diff(task_id: str) -> dict:
             detail=f"Task '{task_id}' nicht gefunden.",
         )
     diff = _task_diffs.get(task_id, "")
+    # Strukturierte Änderungsinfo aus WorkerResult
+    change_info = state.result.extra if state.result else {}
     return {
         "task_id": task_id,
         "status": state.status,
         "diff": diff,
         "diff_lines": len(diff.splitlines()) if diff else 0,
         "branch": _task_branches.get(task_id),
+        "worker": str(state.payload.worker_type),
+        "created": change_info.get("created", []),
+        "modified": change_info.get("modified", []),
+        "deleted": change_info.get("deleted", []),
+        "summary": state.payload.title,
     }
 
 
