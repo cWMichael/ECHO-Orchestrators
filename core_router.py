@@ -456,10 +456,15 @@ async def approve_diff(
     project_path = state.payload.context.get("project_path", "")
     written_files = state.result.artifacts if state.result else []
 
-    # Nur committen wenn Dateien im Orchestrator-Repo geändert wurden
-    # (nicht für externe Projektdateien)
-    orchestrator_changes = not written_files or not project_path
-    if git is not None and orchestrator_changes:
+    if project_path:
+        # Dateien wurden ins externe Projektverzeichnis geschrieben — kein Orchestrator-Commit
+        logger.info(
+            "Task %s: %d Datei(en) ins Projekt geschrieben — kein Orchestrator-Commit.",
+            task_id, len(written_files),
+        )
+        commit_hash = f"project:{len(written_files)}_files"
+    elif git is not None:
+        # Kein Projektpfad → Änderungen im Orchestrator-Repo committen
         try:
             commit_hash = await asyncio.to_thread(
                 git.commit_and_push,
@@ -478,12 +483,6 @@ async def approve_diff(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Commit/Push fehlgeschlagen: {exc}",
             ) from exc
-    elif written_files and project_path:
-        logger.info(
-            "Task %s: %d Datei(en) ins Projekt geschrieben — kein Orchestrator-Commit.",
-            task_id, len(written_files),
-        )
-        commit_hash = f"project:{len(written_files)}_files"
 
     state.status = TaskStatus.COMPLETED
     _task_diffs.pop(task_id, None)
