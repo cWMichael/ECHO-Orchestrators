@@ -1,10 +1,10 @@
 """
-ECHO Orchestrator — Docs Worker
+ECHO Orchestrator - Docs Worker
 Spezialisiert auf technische Dokumentation: README, API-Referenz,
 Architecture Decision Records (ADRs), Inline-Docstrings.
 
 Stufe 1 (jetzt):  Mock-Implementierung.
-Stufe 3 (später): build_prompt() liefert den Prompt, execute() delegiert
+Stufe 3 (spaeter): build_prompt() liefert den Prompt, execute() delegiert
                   an super().execute().
 """
 
@@ -22,28 +22,28 @@ class DocsWorker(BaseWorker):
 
     worker_type = WorkerType.DOCS
 
-    # ── Prompt Builder (für Stufe 3) ──────────────────────────────────────────
+    # Prompt Builder
 
     def build_prompt(self, payload: TaskPayload) -> str:
         files = "\n".join(f"  - {f}" for f in payload.files) or "  (keine Dateien angegeben)"
         context_lines = "\n".join(
             f"  {k}: {v}" for k, v in payload.context.items()
-        ) or "  (kein zusätzlicher Kontext)"
+        ) or "  (kein zusaetzlicher Kontext)"
 
         return (
             "Du bist ein technischer Redakteur mit Expertise in Software-Dokumentation.\n"
-            "Erstelle präzise, entwicklerorintierte Dokumentation für die folgende Aufgabe:\n\n"
+            "Erstelle praezise, entwicklerorintierte Dokumentation fuer die folgende Aufgabe:\n\n"
             f"{payload.description}\n\n"
             f"Betroffene Dateien:\n{files}\n\n"
             f"Kontext:\n{context_lines}\n\n"
             "Anforderungen:\n"
             "  - Schreibe in Markdown.\n"
-            "  - Klar strukturiert: Überschriften, Codebeispiele, Tabellen wo sinnvoll.\n"
+            "  - Klar strukturiert: Ueberschriften, Codebeispiele, Tabellen wo sinnvoll.\n"
             "  - Zielgruppe: Entwickler, die das System zum ersten Mal sehen.\n"
-            "  - Kein Marketing-Sprech. Präzise, technisch korrekt, kein Filler-Text."
+            "  - Kein Marketing-Sprech. Praezise, technisch korrekt, kein Filler-Text."
         )
 
-    # ── Mock Execute (Stufe 1) ────────────────────────────────────────────────
+    # Mock Execute
 
     async def execute(self, payload: TaskPayload) -> WorkerResult:
         logger.info(
@@ -55,12 +55,12 @@ class DocsWorker(BaseWorker):
         mock_output = (
             "# [MOCK] Technische Dokumentation generiert\n\n"
             "## ECHO Orchestrator\n\n"
-            "Deterministische KI-Entwicklungsplattform für interne Tools.\n"
-            "Human-in-the-Loop. Hybrides Modell-Routing (Anthropic / Ollama).\n\n"
+            "Deterministische KI-Entwicklungsplattform fuer interne Tools.\n"
+            "Human-in-the-Loop. Lokale Modell-Ausfuehrung via Ollama.\n\n"
             "---\n\n"
             "## Setup\n\n"
             "```bash\n"
-            "# Abhängigkeiten installieren\n"
+            "# Abhaengigkeiten installieren\n"
             "pip install -r requirements.txt\n\n"
             "# Umgebungsvariablen konfigurieren\n"
             "cp .env.example .env\n\n"
@@ -78,13 +78,13 @@ class DocsWorker(BaseWorker):
             "## Worker-Typen\n\n"
             "| Worker | Aufgabe | Standard-Backend |\n"
             "|--------|---------|------------------|\n"
-            "| `backend_worker` | FastAPI-Routen, DB-Modelle | Anthropic |\n"
+            "| `backend_worker` | FastAPI-Routen, DB-Modelle | Ollama |\n"
             "| `frontend_worker` | React-Komponenten, UI | Ollama |\n"
             "| `test_worker` | pytest Unit-Tests | Ollama |\n"
             "| `docs_worker` | Technische Dokumentation | Ollama |\n"
             "| `retrieval_worker` | RAG / Suche | Ollama |\n\n"
             "## Metriken\n\n"
-            "Alle Ausführungen werden als JSON-Lines nach `logs/echo_metrics.jsonl` geschrieben.\n"
+            "Alle Ausfuehrungen werden als JSON-Lines nach `logs/echo_metrics.jsonl` geschrieben.\n"
             "Felder: `task_id`, `worker_type`, `model_backend`, `duration_seconds`,\n"
             "`token_usage` (prompt/completion/total), `files_touched`, `success`, `timestamp`.\n"
         )

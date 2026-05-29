@@ -1,14 +1,13 @@
 """
-ECHO Orchestrator — Backend Worker (Stufe 3: echte API-Calls aktiv)
+ECHO Orchestrator - Backend Worker (Stufe 3: echte API-Calls aktiv)
 Spezialisiert auf Server-seitige Logik: FastAPI-Routen, Datenbankmodelle,
 Business-Logic, API-Integrationen.
 
 Routing:
-  - Complexity Score >= threshold → Anthropic (Claude) via BaseWorker._call_anthropic()
-  - Complexity Score <  threshold → Ollama (lokal) via BaseWorker._call_ollama()
+  - Alle Tasks laufen ueber Ollama (lokal) via BaseWorker._call_ollama()
 
-execute() delegiert vollständig an BaseWorker.execute().
-Der Worker selbst ist nur noch für den Prompt-Bau zuständig.
+execute() delegiert vollstaendig an BaseWorker.execute().
+Der Worker selbst ist nur noch fuer den Prompt-Bau zustaendig.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ class BackendWorker(BaseWorker):
 
     worker_type = WorkerType.BACKEND
 
-    # ── Prompt Builder ────────────────────────────────────────────────────────
+    # Prompt Builder
 
     def build_prompt(self, payload: TaskPayload) -> str:
         files = (
@@ -36,7 +35,7 @@ class BackendWorker(BaseWorker):
         context_lines = (
             "\n".join(f"  {k}: {v}" for k, v in payload.context.items())
             if payload.context
-            else "  (kein zusätzlicher Kontext)"
+            else "  (kein zusaetzlicher Kontext)"
         )
 
         return (
@@ -49,22 +48,22 @@ class BackendWorker(BaseWorker):
             "## Kontext\n\n"
             f"{context_lines}\n\n"
             "## Anforderungen\n\n"
-            "- Liefere vollständigen, produktionsreifen Python-Code.\n"
+            "- Liefere vollstaendigen, produktionsreifen Python-Code.\n"
             "- Keine Platzhalter, keine TODOs, keine Auslassungen.\n"
-            "- Jede Funktion erhält einen präzisen Docstring.\n"
+            "- Jede Funktion erhaelt einen praezisen Docstring.\n"
             "- Verwende async/await konsequent.\n"
-            "- Pydantic-Modelle für alle Request- und Response-Schemas.\n"
-            "- Fehlerbehandlung mit aussagekräftigen HTTPException-Details.\n"
-            "- Antworte ausschließlich mit dem Code. Keine Einleitung, kein Nachsatz."
+            "- Pydantic-Modelle fuer alle Request- und Response-Schemas.\n"
+            "- Fehlerbehandlung mit aussagekraeftigen HTTPException-Details.\n"
+            "- Antworte ausschliesslich mit dem Code. Keine Einleitung, kein Nachsatz."
         )
 
-    # ── execute() — delegiert an BaseWorker (echte API-Calls) ────────────────
+    #  execute() - delegiert an BaseWorker (echte API-Calls)
 
     async def execute(self, payload: TaskPayload) -> WorkerResult:
         """
         Ruft BaseWorker.execute() auf, welcher:
           1. build_prompt() aufruft
-          2. je nach self.backend _call_anthropic() oder _call_ollama() ausführt
+          2. _call_ollama() ausfuehrt
           3. parse_output() aufruft
           4. Metriken mit echten Token-Zahlen in das JSONL-Log schreibt
         """

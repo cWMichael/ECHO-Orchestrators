@@ -36,7 +36,6 @@ class TaskStatus(str, Enum):
 
 
 class ModelBackend(str, Enum):
-    ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
 
 
