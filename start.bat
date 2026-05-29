@@ -9,6 +9,11 @@ echo.
 :: Zum Projektverzeichnis wechseln
 cd /d "%~dp0"
 
+:: Ollama sicherstellen
+echo  [0/2] Starte Ollama ...
+start "ECHO | Ollama" /min ollama serve
+timeout /t 5 /nobreak > nul
+
 :: Orchestrator Service starten (eigenes Fenster)
 echo  [1/2] Starte Orchestrator Service ...
 start "ECHO | Orchestrator" cmd /c "cd /d "%~dp0" && python main.py"

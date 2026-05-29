@@ -57,6 +57,9 @@ class BackendWorker(BaseWorker):
             "<vollständiger Dateiinhalt>\n"
             "=== END ===\n\n"
             "Mehrere Dateien hintereinander im selben Format.\n"
+            "WICHTIG: Wenn eine Datei bereits existiert, übernimm den VOLLSTÄNDIGEN bestehenden Code "
+            "und ergänze nur die notwendigen Änderungen. Lösche NIEMALS vorhandenen Code der nicht "
+            "direkt zur Aufgabe gehört.\n"
             "Kein Text außerhalb der FILE-Blöcke. Keine Erklärungen. Nur die Blöcke."
         )
 
