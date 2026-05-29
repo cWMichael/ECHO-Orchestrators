@@ -43,28 +43,53 @@ _INLINE_FILE_PATTERN = re.compile(
 )
 
 
+_TRAILING_ARTIFACTS = {"```", "=", "---", "===", ""}
+
+
+def _clean_content(content: str) -> str:
+    """
+    Bereinigt extrahierten Dateiinhalt von LLM-Artefakten.
+    Entfernt führende/abschließende Backticks, =, Leerzeilen und ECHO-Trennzeichen.
+    Wird auf ALLE extrahierten Inhalte angewendet.
+    """
+    lines = content.splitlines()
+    # Führende Backtick-Zeile entfernen
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    # Abschließende Artefakte entfernen
+    while lines and lines[-1].strip() in _TRAILING_ARTIFACTS:
+        lines = lines[:-1]
+    return "\n".join(lines)
+
+
+def _strip_code_fences(content: str) -> str:
+    """Alias für _clean_content."""
+    return _clean_content(content)
+
+
 def extract_file_blocks(raw: str) -> list[tuple[str, str]]:
     """
     Extrahiert (Dateipfad, Inhalt) Paare aus LLM-Output.
+    Alle Inhalte werden durch _clean_content bereinigt.
     Unterstützt:
-      1. ECHO-Format:    === FILE: path === ... === END ===
-      2. Markdown-Heading: ### path.py\n```python\n...\n```
-      3. Inline-Kommentar: ```python\n# FILE: path.py\n...\n```
+      1. ECHO-Format:      === FILE: path === ... === END ===
+      2. Inline-Kommentar: ```python\\n# FILE: path.py\\n...\\n```
+      3. Markdown-Heading: ### path.py\\n```python\\n...\\n```
     """
     # 1. ECHO-Format
     matches = _ECHO_FILE_PATTERN.findall(raw)
     if matches:
-        return [(path.strip(), content) for path, content in matches]
+        return [(path.strip(), _clean_content(content)) for path, content in matches]
 
     # 2. Inline FILE-Kommentar im Codeblock
     matches = _INLINE_FILE_PATTERN.findall(raw)
     if matches:
-        return [(path.strip(), content) for path, content in matches]
+        return [(path.strip(), _clean_content(content)) for path, content in matches]
 
     # 3. Dateiname als Heading vor Codeblock
     matches = _MD_FILE_PATTERN.findall(raw)
     if matches:
-        return [(path.strip(), _strip_code_fences(content)) for path, content in matches]
+        return [(path.strip(), _clean_content(content)) for path, content in matches]
 
     return []
 
@@ -75,20 +100,8 @@ _BARE_CODE_PATTERN = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 
 def extract_code_blocks(raw: str) -> list[str]:
     """Gibt alle Codeblock-Inhalte zurück (ohne Dateinamen-Zuordnung)."""
-    return [_strip_code_fences(m) for m in _BARE_CODE_PATTERN.findall(raw)
+    return [_clean_content(m) for m in _BARE_CODE_PATTERN.findall(raw)
             if m.strip() and not m.strip().startswith("bash") and len(m.strip()) > 20]
-
-
-def _strip_code_fences(content: str) -> str:
-    """Entfernt führende/abschließende Markdown-Artefakte aus Code-Inhalten."""
-    lines = content.splitlines()
-    # Erste Zeile entfernen wenn sie nur Backticks enthält (z.B. ```python)
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    # Letzte Zeile entfernen wenn sie nur Backticks oder = enthält
-    while lines and lines[-1].strip() in ("```", "=", ""):
-        lines = lines[:-1]
-    return "\n".join(lines)
 
 from config import Settings
 from models import (
