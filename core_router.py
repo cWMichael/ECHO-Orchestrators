@@ -510,6 +510,48 @@ async def approve_diff(
 
 
 @router.get(
+    "/retrieval/search",
+    summary="Wissensspeicher durchsuchen",
+    response_model=dict,
+)
+async def retrieval_search(q: str, project_path: str = "", top_k: int = 5) -> dict:
+    """Durchsucht den Retrieval-Index des Projekts."""
+    from retrieval.searcher import search
+    if not project_path:
+        return {"error": "project_path fehlt", "results": []}
+    try:
+        results = search(q, Path(project_path), top_k=top_k)
+        return {
+            "query": q,
+            "result_count": len(results),
+            "results": [r.to_dict() for r in results],
+        }
+    except Exception as exc:
+        return {"error": str(exc), "results": []}
+
+
+@router.post(
+    "/retrieval/index",
+    summary="Projekt-Index aufbauen oder aktualisieren",
+    response_model=dict,
+)
+async def retrieval_index(project_path: str) -> dict:
+    """Scannt das Projektverzeichnis und erstellt den Retrieval-Index."""
+    from retrieval.store import build_index
+    if not project_path:
+        return {"error": "project_path fehlt"}
+    try:
+        index = build_index(Path(project_path))
+        return {
+            "status": "ok",
+            "chunk_count": index.get("chunk_count", 0),
+            "indexed_at": index.get("indexed_at", ""),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.get(
     "/tasks/{task_id}/diff",
     summary="Aktuellen Code-Diff für einen Task abrufen",
     response_model=dict,

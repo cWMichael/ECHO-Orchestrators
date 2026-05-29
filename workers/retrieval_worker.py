@@ -1,86 +1,140 @@
 """
 ECHO Orchestrator — Retrieval Worker
-Spezialisiert auf RAG-Operationen: Kontextsuche, Embedding-Anfragen,
-Dokument-Retrieval aus internen Wissensdatenbanken.
+Indexiert Projektdateien und beantwortet Suchanfragen aus dem Wissensspeicher.
 
-Stufe 1 (jetzt):  Mock-Implementierung.
-Stufe 3 (später): build_prompt() liefert den Prompt, execute() delegiert
-                  an super().execute().
+Zwei Modi:
+  index  — Projekt scannen und Index aufbauen/aktualisieren
+  search — Relevante Chunks suchen und als Kontext zurückgeben
 """
-
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from base_worker import BaseWorker
-from models import ModelBackend, TaskPayload, TokenUsage, WorkerResult, WorkerType
+from models import TaskPayload, WorkerResult, WorkerType
+from retrieval.searcher import search, format_results_for_prompt
+from retrieval.store import build_index, get_or_build_index, index_stats
 
 logger = logging.getLogger("echo.workers.retrieval")
+
+_INDEX_KEYWORDS = {"index", "indexier", "scan", "einlesen", "wissensdatenbank", "aufbauen"}
+_SEARCH_KEYWORDS = {"such", "find", "zeig", "was", "wo", "welche", "retrieval"}
+
+
+def _detect_mode(description: str) -> str:
+    desc_lower = description.lower()
+    if any(k in desc_lower for k in _INDEX_KEYWORDS):
+        return "index"
+    return "search"
 
 
 class RetrievalWorker(BaseWorker):
 
     worker_type = WorkerType.RETRIEVAL
 
-    # ── Prompt Builder (für Stufe 3) ──────────────────────────────────────────
-
     def build_prompt(self, payload: TaskPayload) -> str:
-        files = "\n".join(f"  - {f}" for f in payload.files) or "  (keine Dateien angegeben)"
-        context_lines = "\n".join(
-            f"  {k}: {v}" for k, v in payload.context.items()
-        ) or "  (kein zusätzlicher Kontext)"
+        """Retrieval Worker nutzt LLM nur für Zusammenfassungen — nicht für Code."""
+        project_path = payload.context.get("project_path", "")
+        query = payload.description
+
+        # Suchergebnisse in Prompt einbauen
+        if project_path:
+            results = search(query, Path(project_path), top_k=5)
+            knowledge = format_results_for_prompt(results)
+        else:
+            knowledge = "Kein Projektverzeichnis gesetzt."
 
         return (
-            "Du bist ein Retrieval-Spezialist.\n"
-            "Analysiere die folgende Anfrage und extrahiere relevante Informationen "
-            "aus dem bereitgestellten Kontext:\n\n"
-            f"{payload.description}\n\n"
-            f"Verfügbare Dokumente / Dateien:\n{files}\n\n"
-            f"Kontext:\n{context_lines}\n\n"
-            "Antworte mit den relevantesten Textstellen, Zusammenfassungen und "
-            "einer Quellenangabe pro Treffer. Format: Markdown."
+            "Du bist ein Wissensassistent. Beantworte die folgende Anfrage "
+            "auf Basis der bereitgestellten Dokumente.\n\n"
+            f"## Anfrage\n\n{query}\n\n"
+            f"{knowledge}\n\n"
+            "Antworte präzise und zitiere die Quelle (Datei + Zeile) für jeden Treffer. "
+            "Format: Markdown. Kein Filler-Text."
         )
-
-    # ── Mock Execute (Stufe 1) ────────────────────────────────────────────────
 
     async def execute(self, payload: TaskPayload) -> WorkerResult:
+        project_path = payload.context.get("project_path", "")
+        mode = _detect_mode(payload.description)
+
         logger.info(
-            "RetrievalWorker | task=%s | backend=%s [MOCK]",
-            payload.task_id,
-            self.backend,
+            "RetrievalWorker | task=%s | mode=%s | project=%s",
+            payload.task_id, mode, project_path or "—",
         )
 
-        mock_output = (
-            "# [MOCK] Retrieval-Ergebnis\n\n"
-            "## Treffer 1\n"
-            "**Quelle:** `docs/architecture.md` (Zeile 42–67)\n"
-            "**Relevanz:** 0.91\n\n"
-            "> Das ECHO-System verwendet ein deterministisches Routing-Modell, "
-            "bei dem jede Aufgabe anhand eines Complexity Scores einem spezialisierten "
-            "Worker zugewiesen wird. Human-in-the-Loop bleibt obligatorisch.\n\n"
-            "## Treffer 2\n"
-            "**Quelle:** `docs/api_reference.md` (Zeile 12–28)\n"
-            "**Relevanz:** 0.84\n\n"
-            "> Der Core Router berechnet den Complexity Score auf Basis des Worker-Typs, "
-            "der Beschreibungslänge und der Kontextgröße. Schwellenwert: 0.6.\n"
+        if mode == "index":
+            return await self._run_index(payload, project_path)
+        else:
+            return await self._run_search(payload, project_path)
+
+    async def _run_index(self, payload: TaskPayload, project_path: str) -> WorkerResult:
+        """Baut den Projekt-Index auf."""
+        if not project_path:
+            return WorkerResult(
+                task_id=payload.task_id,
+                worker_type=self.worker_type,
+                model_backend=self.backend,
+                model_name=self._active_model_name(),
+                success=False,
+                output="",
+                error="Kein Projektverzeichnis gesetzt — Index kann nicht aufgebaut werden.",
+            )
+
+        root = Path(project_path)
+        index = build_index(root)
+        chunk_count = index.get("chunk_count", 0)
+        output = (
+            f"# Index erfolgreich aufgebaut\n\n"
+            f"- Projektverzeichnis: `{project_path}`\n"
+            f"- Chunks: {chunk_count}\n"
+            f"- Gespeichert: `.echo/retrieval_index.json`\n"
         )
 
-        mock_tokens = TokenUsage(prompt_tokens=950, completion_tokens=320)
-
-        result = WorkerResult(
+        return WorkerResult(
             task_id=payload.task_id,
             worker_type=self.worker_type,
             model_backend=self.backend,
             model_name=self._active_model_name(),
             success=True,
-            output=mock_output,
-            artifacts=["docs/architecture.md", "docs/api_reference.md"],
+            output=output,
+            artifacts=[".echo/retrieval_index.json"],
+            extra={"mode": "index", "chunk_count": chunk_count},
         )
 
-        self._write_metric_log(
-            payload=payload,
-            result=result,
-            token_usage=mock_tokens,
-            duration=0.0,
-        )
+    async def _run_search(self, payload: TaskPayload, project_path: str) -> WorkerResult:
+        """Sucht im Index und gibt Ergebnisse zurück — optional mit LLM-Zusammenfassung."""
+        if not project_path:
+            return WorkerResult(
+                task_id=payload.task_id,
+                worker_type=self.worker_type,
+                model_backend=self.backend,
+                model_name=self._active_model_name(),
+                success=False,
+                output="",
+                error="Kein Projektverzeichnis gesetzt.",
+            )
+
+        root = Path(project_path)
+        results = search(payload.description, root, top_k=5)
+
+        if not results:
+            output = "Keine relevanten Dokumente gefunden."
+            return WorkerResult(
+                task_id=payload.task_id,
+                worker_type=self.worker_type,
+                model_backend=self.backend,
+                model_name=self._active_model_name(),
+                success=True,
+                output=output,
+                extra={"mode": "search", "results": 0},
+            )
+
+        # Mit LLM zusammenfassen
+        result = await super().execute(payload)
+        result.extra = {
+            "mode": "search",
+            "results": len(results),
+            "sources": [r.chunk.file_path for r in results],
+        }
         return result
