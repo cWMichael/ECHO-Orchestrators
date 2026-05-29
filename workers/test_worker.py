@@ -110,7 +110,7 @@ class TestWorker(BaseWorker):
 
         all_written = created + modified
         if not all_written:
-            logger.warning("TestWorker: Keine FILE-Blöcke im Output. %.200s", raw)
+            logger.warning("TestWorker: Keine FILE-Blöcke im Output.\nROH-OUTPUT:\n%s", raw)
 
         return WorkerResult(
             task_id=payload.task_id,

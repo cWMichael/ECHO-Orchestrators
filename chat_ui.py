@@ -158,6 +158,9 @@ class EchoChatUI:
             self._post_warning("Bitte zuerst die aktuelle Gate-Entscheidung treffen." if "gate" in self._state else "Worker läuft noch. Bitte warten.")
             return
         self._post_user(text)
+        if not self._project_path:
+            self._post_warning("Kein Projekt geöffnet. Bitte zuerst '⊞ Projekt öffnen' klicken.")
+            return
         self._post_system("Planner analysiert ...")
         self._set_busy(True)
         self._spinner_start("Planner")

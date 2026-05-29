@@ -7,3 +7,4 @@ logs/
 *.log
 .venv/
 venv/
+task-history/

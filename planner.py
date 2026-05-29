@@ -73,14 +73,13 @@ class Planner:
         if active_layers:
             logger.info("Planner Rule-Layer: %s", active_layers)
 
-        # Prompt zusammenbauen
+        # Prompt kompakt halten — Planner braucht nur die Anfrage und Dateiliste
         prompt_parts = [_BASE_PROMPT]
 
-        if rule_context:
-            prompt_parts.append(f"## AKTIVE REGELN\n\n{rule_context}")
-
+        # Nur Dateiliste, keine Regeln — Worker bekommt die Regeln
         if project_context:
-            prompt_parts.append(f"## PROJEKTKONTEXT\n\n{project_context}")
+            lines = [l for l in project_context.splitlines() if l.strip()][:15]
+            prompt_parts.append("## PROJEKTDATEIEN\n\n" + "\n".join(lines))
 
         prompt_parts.append(f"Entwickleranfrage: {user_request}\n\nAntworte nur mit dem JSON-Objekt:")
 
@@ -108,7 +107,7 @@ class Planner:
         """Synchroner Ollama-Call für den Planner (läuft im Haupt-Thread der UI)."""
         with httpx.Client(
             base_url=self.settings.ollama_base_url,
-            timeout=httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0),
+            timeout=httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=5.0),
         ) as client:
             response = client.post(
                 "/api/generate",
