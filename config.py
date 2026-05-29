@@ -25,18 +25,6 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production"] = "development"
     cors_origins: list[str] = Field(default=["http://localhost:3000"])
 
-    # ── Anthropic ─────────────────────────────────────────────────────────────
-    anthropic_api_key: str = Field(
-        default="",
-        description="Anthropic API key — required for tasks routed to the cloud backend",
-    )
-    # Maps to DEFAULT_CLOUD_MODEL in .env
-    default_cloud_model: str = Field(
-        default="claude-opus-4-6",
-        description="Anthropic model for complex / architecture tasks",
-    )
-    anthropic_max_tokens: int = Field(default=4096, ge=256, le=32768)
-
     # ── Ollama (local) ────────────────────────────────────────────────────────
     ollama_base_url: str = Field(
         default="http://localhost:11434",
@@ -50,12 +38,6 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: int = Field(default=120, ge=10)
 
     # ── Routing ───────────────────────────────────────────────────────────────
-    complexity_threshold: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description="Router threshold — above → Anthropic, below → Ollama",
-    )
     bypass_human_gate: bool = Field(
         default=False,
         description="Auto-approves tasks. Must never be True in production.",
@@ -68,28 +50,11 @@ class Settings(BaseSettings):
     # ── Convenience properties ────────────────────────────────────────────────
 
     @property
-    def anthropic_model(self) -> str:
-        """Alias kept for backward-compatibility with BaseWorker."""
-        return self.default_cloud_model
-
-    @property
     def ollama_model(self) -> str:
         """Alias kept for backward-compatibility with BaseWorker."""
         return self.default_local_model
 
     # ── Validation ────────────────────────────────────────────────────────────
-
-    @field_validator("anthropic_api_key")
-    @classmethod
-    def warn_missing_api_key(cls, v: str) -> str:
-        if not v:
-            import warnings
-            warnings.warn(
-                "ANTHROPIC_API_KEY is not set. "
-                "Tasks routed to Anthropic will fail at runtime.",
-                stacklevel=2,
-            )
-        return v
 
     @field_validator("bypass_human_gate")
     @classmethod

@@ -73,8 +73,6 @@ def _compute_complexity(payload: TaskPayload) -> float:
 
 
 def _assign_backend(score: float, settings: Settings) -> ModelBackend:
-    if score >= settings.complexity_threshold:
-        return ModelBackend.ANTHROPIC
     return ModelBackend.OLLAMA
 
 

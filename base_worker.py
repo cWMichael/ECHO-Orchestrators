@@ -4,7 +4,7 @@ Alle spezialisierten Worker erben von dieser Klasse.
 
 Verantwortlichkeiten:
   - Einheitliches execute()-Interface
-  - Hybrides Modell-Routing: Anthropic AsyncClient / httpx → Ollama
+  - Modell-Routing: httpx → Ollama (lokal)
   - Robuste Fehlerbehandlung (Netzwerk-Timeouts, API-Fehler)
   - JSON-Lines Metriken-Logging (echte Tokens aus API-Antworten, Laufzeit, Dateien)
 """
@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 import httpx
-from anthropic import APIConnectionError, APIStatusError, APITimeoutError, AsyncAnthropic
 
 from config import Settings
 from models import (
@@ -51,7 +50,6 @@ class BaseWorker(ABC):
     def __init__(self, backend: ModelBackend, settings: Settings) -> None:
         self.backend = backend
         self.settings = settings
-        self._anthropic_client: AsyncAnthropic | None = None
         self._http_client: httpx.AsyncClient | None = None
 
     # ── Public Interface ──────────────────────────────────────────────────────
@@ -68,10 +66,7 @@ class BaseWorker(ABC):
         try:
             prompt = self.build_prompt(payload)
 
-            if self.backend == ModelBackend.ANTHROPIC:
-                raw, token_usage = await self._call_anthropic(prompt)
-            else:
-                raw, token_usage = await self._call_ollama(prompt)
+            raw, token_usage = await self._call_ollama(prompt)
 
             result = self.parse_output(raw, payload)
 
@@ -135,73 +130,6 @@ class BaseWorker(ABC):
             output=raw,
             artifacts=payload.files,
         )
-
-    # ── Anthropic Call ────────────────────────────────────────────────────────
-
-    async def _call_anthropic(self, prompt: str) -> tuple[str, TokenUsage]:
-        """
-        Calls the Anthropic Messages API using the official async client.
-        Extracts real token counts from the response.
-        Raises RuntimeError on configuration issues, re-raises API errors
-        after logging so the caller can record them in the metric log.
-        """
-        if not self.settings.anthropic_api_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is not configured. "
-                "Cannot route task to Anthropic backend."
-            )
-
-        if self._anthropic_client is None:
-            self._anthropic_client = AsyncAnthropic(
-                api_key=self.settings.anthropic_api_key,
-                # Explicit timeout so we never block indefinitely
-                timeout=httpx.Timeout(
-                    connect=10.0,
-                    read=float(self.settings.ollama_timeout_seconds),
-                    write=30.0,
-                    pool=5.0,
-                ),
-            )
-
-        try:
-            response = await self._anthropic_client.messages.create(
-                model=self.settings.anthropic_model,
-                max_tokens=self.settings.anthropic_max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except APITimeoutError as exc:
-            raise TimeoutError(
-                f"Anthropic API timed out after "
-                f"{self.settings.ollama_timeout_seconds}s: {exc}"
-            ) from exc
-        except APIConnectionError as exc:
-            raise ConnectionError(
-                f"Cannot reach Anthropic API: {exc}"
-            ) from exc
-        except APIStatusError as exc:
-            raise RuntimeError(
-                f"Anthropic API returned HTTP {exc.status_code}: {exc.message}"
-            ) from exc
-
-        raw_text = "".join(
-            block.text
-            for block in response.content
-            if hasattr(block, "text")
-        )
-
-        # Extract real token usage from the response object
-        usage = TokenUsage(
-            prompt_tokens=response.usage.input_tokens,
-            completion_tokens=response.usage.output_tokens,
-        )
-
-        logger.debug(
-            "Anthropic call complete | model=%s | prompt_tokens=%d | completion_tokens=%d",
-            response.model,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-        )
-        return raw_text, usage
 
     # ── Ollama Call ───────────────────────────────────────────────────────────
 
@@ -321,8 +249,6 @@ class BaseWorker(ABC):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _active_model_name(self) -> str:
-        if self.backend == ModelBackend.ANTHROPIC:
-            return self.settings.anthropic_model
         return self.settings.ollama_model
 
     async def close(self) -> None:
@@ -330,5 +256,3 @@ class BaseWorker(ABC):
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
-        if self._anthropic_client is not None:
-            self._anthropic_client = None
