@@ -8,18 +8,18 @@ from tkinter import ttk
 import httpx
 from planner import Planner
 
-BG_DARK = "#1e1e1e"
-BG_INPUT = "#2a2a2a"
-BG_BUTTON = "#3a3a3a"
-BG_BTN_YES = "#1e4d2b"
-BG_BTN_NO = "#4d1e1e"
-FG_TEXT = "#d4d4d4"
-FG_DIMMED = "#808080"
-FG_ACCENT = "#569cd6"
-FG_SUCCESS = "#4ec994"
-FG_WARNING = "#ce9178"
-FG_ERROR = "#f44747"
-FG_PLAN = "#dcdcaa"
+BG_DARK    = "#0A0A0A"   # Carbon Black
+BG_INPUT   = "#141414"   # etwas heller für Input-Zeile
+BG_BUTTON  = "#1E1E1E"   # Button-Hintergrund
+BG_BTN_YES = "#1A2200"   # Heritage Lime dunkel
+BG_BTN_NO  = "#1A0A0A"   # Rot dunkel
+FG_TEXT    = "#C0C0C0"   # Technical Silver
+FG_DIMMED  = "#505050"   # gedämpft
+FG_ACCENT  = "#00A3FF"   # Cyber Blue
+FG_SUCCESS = "#C2D500"   # Heritage Lime
+FG_WARNING = "#00A3FF"   # Cyber Blue für Hinweise
+FG_ERROR   = "#FF3333"   # Rot
+FG_PLAN    = "#C0C0C0"   # Technical Silver für Plan-Text
 
 ORCHESTRATOR_URL = "http://127.0.0.1:8020"
 REVIEWER_NAME = "Mica"
