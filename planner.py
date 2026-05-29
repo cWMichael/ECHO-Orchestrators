@@ -41,7 +41,7 @@ Worker-Typen:
 - frontend_worker: UI-Komponenten, React, Qt, CSS
 - test_worker: Unit-Tests, Integrationstests
 - docs_worker: Dokumentation, README, Changelogs
-- retrieval_worker: Wissenssuche, Indexierung, Connector-Abfragen
+- retrieval_worker: Projekt indexieren, Wissenssuche, Dateien durchsuchen, "was steht in..."
 
 Sei präzise. Keine Füllsätze. Technisch korrekt."""
 

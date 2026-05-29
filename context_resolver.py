@@ -20,6 +20,7 @@ _LAYER_MAP: dict[str, list[str]] = {
     "frontend_task":   ["core", "architecture", "security"],
     "content_task":    ["core", "branding"],
     "connector_task":  ["core", "security", "connectors"],
+    "retrieval_task":  ["core", "security"],
     "ai_task":         ["core", "security", "architecture"],
     "default":         ["core", "security"],
 }
@@ -48,4 +49,6 @@ def classify_task(description: str, worker_type: str) -> str:
         return "content_task"
     if any(k in desc_lower for k in ["connector", "sync", "sharepoint", "azure", "crm"]):
         return "connector_task"
+    if any(k in desc_lower for k in ["index", "indexier", "such", "retrieval", "wissen", "scan", "find"]):
+        return "retrieval_task"
     return worker_type or "default"

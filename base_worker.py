@@ -80,13 +80,13 @@ def extract_code_blocks(raw: str) -> list[str]:
 
 
 def _strip_code_fences(content: str) -> str:
-    """Entfernt führende/abschließende Markdown-Backtick-Zeilen aus Code-Inhalten."""
+    """Entfernt führende/abschließende Markdown-Artefakte aus Code-Inhalten."""
     lines = content.splitlines()
     # Erste Zeile entfernen wenn sie nur Backticks enthält (z.B. ```python)
     if lines and lines[0].strip().startswith("```"):
         lines = lines[1:]
-    # Letzte Zeile entfernen wenn sie nur Backticks enthält
-    if lines and lines[-1].strip() == "```":
+    # Letzte Zeile entfernen wenn sie nur Backticks oder = enthält
+    while lines and lines[-1].strip() in ("```", "=", ""):
         lines = lines[:-1]
     return "\n".join(lines)
 
