@@ -6,18 +6,12 @@ Schreibt ausschließlich .md Dateien ins Projektverzeichnis.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
-from base_worker import BaseWorker
+from base_worker import BaseWorker, extract_file_blocks
 from models import TaskPayload, WorkerResult, WorkerType
 
 logger = logging.getLogger("echo.workers.docs")
-
-_FILE_PATTERN = re.compile(
-    r"===\s*FILE:\s*(.+?)\s*===\n(.*?)(?===\s*END\s*===|\Z)",
-    re.DOTALL,
-)
 
 
 class DocsWorker(BaseWorker):
@@ -86,7 +80,7 @@ class DocsWorker(BaseWorker):
         return prompt
 
     def parse_output(self, raw: str, payload: TaskPayload) -> WorkerResult:
-        matches = _FILE_PATTERN.findall(raw)
+        matches = extract_file_blocks(raw)
         project_root = Path(payload.context.get("project_path", "")).resolve()
         if not project_root.exists():
             project_root = Path.cwd()

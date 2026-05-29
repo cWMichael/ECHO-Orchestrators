@@ -45,6 +45,7 @@ class EchoChatUI:
         self._post_system("ECHO Orchestrator gestartet.")
         self._load_ruleset()
         self._check_server()
+        self._post_system(f"Planner: {self.planner.settings.planner_model} | Worker: {self.planner.settings.ollama_model}")
 
     def _build_ui(self) -> None:
         self.root.title("ECHO Orchestrator")

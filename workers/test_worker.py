@@ -6,18 +6,12 @@ Schreibt test_*.py Dateien ins Projektverzeichnis.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
-from base_worker import BaseWorker
+from base_worker import BaseWorker, extract_file_blocks, extract_code_blocks
 from models import TaskPayload, WorkerResult, WorkerType
 
 logger = logging.getLogger("echo.workers.test")
-
-_FILE_PATTERN = re.compile(
-    r"===\s*FILE:\s*(.+?)\s*===\n(.*?)(?===\s*END\s*===|\Z)",
-    re.DOTALL,
-)
 
 
 class TestWorker(BaseWorker):
@@ -85,7 +79,7 @@ class TestWorker(BaseWorker):
         return prompt
 
     def parse_output(self, raw: str, payload: TaskPayload) -> WorkerResult:
-        matches = _FILE_PATTERN.findall(raw)
+        matches = extract_file_blocks(raw)
         project_root = Path(payload.context.get("project_path", "")).resolve()
         if not project_root.exists():
             project_root = Path.cwd()
@@ -108,9 +102,31 @@ class TestWorker(BaseWorker):
             except OSError as exc:
                 logger.error("Fehler beim Schreiben von %s: %s", file_path, exc)
 
+        # Fallback: Codeblock ohne Dateinamen → Zieldatei aus Payload ableiten
+        if not created and not modified:
+            code_blocks = extract_code_blocks(raw)
+            # Nur Python-Blöcke (keine bash-Befehle)
+            py_blocks = [b for b in code_blocks if "def test_" in b or "import" in b]
+            if py_blocks and payload.files:
+                # Zieldatei: erste test_*.py aus Payload oder test_<erste_datei>.py
+                target = next(
+                    (f for f in payload.files if Path(f).name.startswith("test_")),
+                    f"tests/test_{Path(payload.files[0]).stem}.py" if payload.files else "tests/test_output.py"
+                )
+                rel_path = Path(target)
+                file_path = project_root / rel_path
+                is_new = not file_path.exists()
+                try:
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(py_blocks[0], encoding="utf-8")
+                    (created if is_new else modified).append(str(rel_path))
+                    logger.info("TestWorker Fallback: Datei geschrieben: %s", file_path)
+                except OSError as exc:
+                    logger.error("Fallback-Schreiben fehlgeschlagen: %s", exc)
+            else:
+                logger.warning("TestWorker: Keine verwertbaren Codeblöcke im Output.\nROH:\n%s", raw)
+
         all_written = created + modified
-        if not all_written:
-            logger.warning("TestWorker: Keine FILE-Blöcke im Output.\nROH-OUTPUT:\n%s", raw)
 
         return WorkerResult(
             task_id=payload.task_id,

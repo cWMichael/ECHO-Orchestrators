@@ -112,7 +112,7 @@ class Planner:
             response = client.post(
                 "/api/generate",
                 json={
-                    "model": self.settings.ollama_model,
+                    "model": self.settings.planner_model,
                     "prompt": prompt,
                     "stream": False,
                 },

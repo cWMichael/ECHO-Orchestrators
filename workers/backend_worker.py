@@ -10,18 +10,12 @@ Git-Diff zeigt danach die echten Änderungen.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
-from base_worker import BaseWorker
+from base_worker import BaseWorker, extract_file_blocks
 from models import TaskPayload, WorkerResult, WorkerType
 
 logger = logging.getLogger("echo.workers.backend")
-
-_FILE_PATTERN = re.compile(
-    r"===\s*FILE:\s*(.+?)\s*===\n(.*?)(?===\s*END\s*===|\Z)",
-    re.DOTALL,
-)
 
 
 class BackendWorker(BaseWorker):
@@ -90,7 +84,7 @@ class BackendWorker(BaseWorker):
     # ── Output Parser — schreibt Dateien auf Disk ─────────────────────────────
 
     def parse_output(self, raw: str, payload: TaskPayload) -> WorkerResult:
-        matches = _FILE_PATTERN.findall(raw)
+        matches = extract_file_blocks(raw)
 
         # Projektverzeichnis aus Kontext — fallback: CWD
         project_root = Path(payload.context.get("project_path", "")).resolve()

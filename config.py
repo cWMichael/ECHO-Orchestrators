@@ -32,8 +32,12 @@ class Settings(BaseSettings):
     )
     # Maps to DEFAULT_LOCAL_MODEL in .env
     default_local_model: str = Field(
-        default="echo-meta-14b",
-        description="Ollama model for routine tasks (refactoring, testing, docs)",
+        default="deepseek-coder-v2:16b",
+        description="Ollama model for workers (code generation)",
+    )
+    planner_model: str = Field(
+        default="qwen3:14b",
+        description="Ollama model for the Planner (analysis, JSON output)",
     )
     ollama_timeout_seconds: int = Field(default=120, ge=10)
 

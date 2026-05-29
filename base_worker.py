@@ -14,11 +14,81 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 import httpx
+
+# ── File-Block Parser ─────────────────────────────────────────────────────────
+
+_ECHO_FILE_PATTERN = re.compile(
+    r"===\s*FILE:\s*(.+?)\s*===\n(.*?)(?===\s*END\s*===|\Z)",
+    re.DOTALL,
+)
+
+# Markdown-Codeblock mit Dateiname davor
+# z.B. ### tests/test_hello.py\n```python\n...\n```
+_MD_FILE_PATTERN = re.compile(
+    r"(?:#{1,4}\s+|//\s*|#\s*)?([\w/\\.\-]+\.(?:py|js|ts|jsx|tsx|html|css|md|txt|json|yaml|yml))\s*\n```[^\n]*\n(.*?)```",
+    re.DOTALL,
+)
+
+# Codeblock mit # FILE: Kommentar als erste Zeile innerhalb des Blocks
+# z.B. ```python\n# FILE: tests/test_hello.py\n...\n```
+_INLINE_FILE_PATTERN = re.compile(
+    r"```[^\n]*\n#\s*FILE:\s*([\w/\\.\-]+)\s*\n(.*?)```",
+    re.DOTALL,
+)
+
+
+def extract_file_blocks(raw: str) -> list[tuple[str, str]]:
+    """
+    Extrahiert (Dateipfad, Inhalt) Paare aus LLM-Output.
+    Unterstützt:
+      1. ECHO-Format:    === FILE: path === ... === END ===
+      2. Markdown-Heading: ### path.py\n```python\n...\n```
+      3. Inline-Kommentar: ```python\n# FILE: path.py\n...\n```
+    """
+    # 1. ECHO-Format
+    matches = _ECHO_FILE_PATTERN.findall(raw)
+    if matches:
+        return [(path.strip(), content) for path, content in matches]
+
+    # 2. Inline FILE-Kommentar im Codeblock
+    matches = _INLINE_FILE_PATTERN.findall(raw)
+    if matches:
+        return [(path.strip(), content) for path, content in matches]
+
+    # 3. Dateiname als Heading vor Codeblock
+    matches = _MD_FILE_PATTERN.findall(raw)
+    if matches:
+        return [(path.strip(), _strip_code_fences(content)) for path, content in matches]
+
+    return []
+
+
+# Einfacher Codeblock ohne Dateinamen
+_BARE_CODE_PATTERN = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+def extract_code_blocks(raw: str) -> list[str]:
+    """Gibt alle Codeblock-Inhalte zurück (ohne Dateinamen-Zuordnung)."""
+    return [_strip_code_fences(m) for m in _BARE_CODE_PATTERN.findall(raw)
+            if m.strip() and not m.strip().startswith("bash") and len(m.strip()) > 20]
+
+
+def _strip_code_fences(content: str) -> str:
+    """Entfernt führende/abschließende Markdown-Backtick-Zeilen aus Code-Inhalten."""
+    lines = content.splitlines()
+    # Erste Zeile entfernen wenn sie nur Backticks enthält (z.B. ```python)
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    # Letzte Zeile entfernen wenn sie nur Backticks enthält
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines)
 
 from config import Settings
 from models import (
