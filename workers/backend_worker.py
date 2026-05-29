@@ -78,10 +78,11 @@ class BackendWorker(BaseWorker):
         prompt += (
             "## Ausgabeformat — ZWINGEND EINHALTEN\n\n"
             "Für jede Datei die erstellt oder geändert wird, exakt dieses Format:\n\n"
-            "=== FILE: pfad/zur/datei.ext ===\n"
+            "=== FILE: hello.py ===\n"
             "<vollständiger Dateiinhalt>\n"
             "=== END ===\n\n"
-            "Pfade relativ zum Projektverzeichnis. "
+            "WICHTIG: Nur den Dateinamen oder kurzen relativen Pfad angeben (z.B. 'hello.py' oder 'backend/hello.py').\n"
+            "NIEMALS absolute Pfade wie 'C:\\...' oder '/home/...' verwenden.\n"
             "Kein Text außerhalb der FILE-Blöcke. Keine Erklärungen. Nur die Blöcke."
         )
         return prompt
