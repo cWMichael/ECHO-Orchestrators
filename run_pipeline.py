@@ -74,6 +74,10 @@ def _warn(msg: str) -> None:
     print(f"  {C.YELLOW}⚠{C.RESET}  {msg}")
 
 
+def info(msg: str) -> None:
+    print(f"  {C.CYAN}→{C.RESET}  {msg}")
+
+
 def _err(msg: str) -> None:
     print(f"  {C.RED}✗{C.RESET}  {msg}")
 
@@ -410,6 +414,94 @@ def print_summary(client: PipelineClient, task_id: str) -> None:
     print()
 
 
+# ── Natural Language Modus ───────────────────────────────────────────────────
+
+def _run_natural_mode(client: PipelineClient, args: argparse.Namespace) -> None:
+    """
+    Vollständiger Natural-Language-Flow:
+      1. Intent → POST /api/v1/plan → PlanResult anzeigen
+      2. Gate 0: Plan freigeben oder ablehnen
+      3. Freigegebene Tasks einzeln durch Gate 1 + Gate 2 führen
+    """
+    _header("NATURAL LANGUAGE MODUS — Planner")
+    print(f"  {C.CYAN}Intent:{C.RESET} {args.natural}")
+    print()
+
+    # ── Plan erstellen ────────────────────────────────────────────────────────
+    _step("Planner:", "analysiert Anforderung ...")
+    plan_data = client.post("/api/v1/plan", {
+        "intent": args.natural,
+        "reviewer": args.reviewer,
+        "context": {},
+    })
+
+    plan_id: str = plan_data["plan_id"]
+    plan_title: str = plan_data.get("plan_title", "?")
+    tasks: list = plan_data.get("tasks", [])
+    summary: str = plan_data.get("summary", "")
+    est_tokens: int = plan_data.get("estimated_total_tokens", 0)
+
+    _ok(f"Plan erstellt: {C.BOLD}{plan_title}{C.RESET}")
+    _step("Plan-ID:", plan_id[:8])
+    _step("Tasks:", str(len(tasks)))
+    _step("Tokens ~:", str(est_tokens))
+    print()
+    print(f"  {C.DIM}{summary}{C.RESET}")
+    print()
+
+    # Tasks auflisten
+    print(_sep())
+    for i, task in enumerate(tasks, 1):
+        print(f"  {C.BOLD}[{i}]{C.RESET} {task.get('title', '?')}")
+        print(f"      {C.DIM}Worker: {task.get('worker_type', '?')} | "
+              f"Prio: {task.get('priority', '?')}{C.RESET}")
+        rationale = task.get("rationale", "")
+        if rationale:
+            print(f"      {C.DIM}→ {rationale}{C.RESET}")
+        print()
+    print(_sep())
+
+    # ── Gate 0: Plan freigeben ────────────────────────────────────────────────
+    approved = _ask(f"Diesen Plan ({len(tasks)} Task(s)) freigeben und ausführen?")
+
+    approval = client.post(f"/api/v1/plan/{plan_id}/approve", {
+        "approved": approved,
+        "reviewer": args.reviewer,
+        "comment": "Gate-0-Freigabe via run_pipeline.py",
+    })
+
+    if not approved:
+        _warn("Plan abgelehnt. Keine Tasks wurden eingereicht.")
+        client.close()
+        sys.exit(0)
+
+    submitted_ids: list[str] = [r["task_id"] for r in approval if r.get("task_id")]
+    _ok(f"{len(submitted_ids)} Task(s) eingereicht.")
+
+    # ── Jeden Task durch Gate 1 + Gate 2 führen ───────────────────────────────
+    for i, task_id in enumerate(submitted_ids, 1):
+        task_info = tasks[i - 1] if i - 1 < len(tasks) else {}
+        print()
+        print(_sep("═"))
+        print(f"  {C.BOLD}Task {i}/{len(submitted_ids)}: {task_info.get('title', task_id[:8])}{C.RESET}")
+        print(_sep("═"))
+
+        gate1_approved = step_b_gate1(client, task_id, reviewer=args.reviewer)
+        if not gate1_approved:
+            _warn(f"Task {i} abgelehnt — nächster Task.")
+            continue
+
+        diff = step_c_diff(client, task_id)
+
+        status_data = client.get(f"/api/v1/tasks/{task_id}")
+        if status_data["status"] == "pending_diff":
+            step_d_gate2(client, task_id, reviewer=args.reviewer, diff=diff)
+
+        print_summary(client, task_id)
+
+    client.close()
+
+
 # ── CLI-Argumente ─────────────────────────────────────────────────────────────
 
 def _parse_args() -> argparse.Namespace:
@@ -471,6 +563,15 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="ANSI-Farben deaktivieren",
     )
+    parser.add_argument(
+        "--natural",
+        metavar="INTENT",
+        default=None,
+        help=(
+            "Natürlichsprachliche Eingabe: Das System plant automatisch. "
+            'Beispiel: --natural "Ich brauche eine Exportfunktion für PDF-Reports"'
+        ),
+    )
     return parser.parse_args()
 
 
@@ -480,41 +581,39 @@ def main() -> None:
     args = _parse_args()
 
     if args.no_color:
-        # Alle Farbkonstanten leeren
         for attr in vars(C):
             if not attr.startswith("__"):
                 setattr(C, attr, "")
+
+    client = PipelineClient(base_url=args.host, timeout=args.timeout)
+
+    print()
+    print(_sep("═"))
+    print(f"  {C.BOLD}{C.WHITE}ECHO ORCHESTRATOR{C.RESET}")
+    print(_sep("═"))
+    print(f"  Server  : {args.host}")
+    print(f"  Reviewer: {args.reviewer}")
+    print(_sep("═"))
+
+    print()
+    client.check_server()
+
+    # ── Natural Language Modus ────────────────────────────────────────────────
+    if args.natural:
+        _run_natural_mode(client, args)
+        return
+
+    # ── Klassischer Modus (direkter Task) ────────────────────────────────────
+    print(f"  {C.DIM}Modus: direkt | Worker: {args.worker}{C.RESET}")
 
     task_payload = {
         "title": args.title,
         "description": args.description,
         "worker_type": args.worker,
         "priority": "normal",
-        "context": {
-            "project": "cyberFlow",
-            "target_file": "app/routes/projects.py",
-        },
-        "files": [
-            "app/routes/projects.py",
-            "app/models/project.py",
-            "app/services/project_service.py",
-        ],
+        "context": {},
+        "files": [],
     }
-
-    print()
-    print(_sep("═"))
-    print(f"  {C.BOLD}{C.WHITE}ECHO ORCHESTRATOR — PIPELINE TEST{C.RESET}")
-    print(_sep("═"))
-    print(f"  Server  : {args.host}")
-    print(f"  Reviewer: {args.reviewer}")
-    print(f"  Worker  : {args.worker}")
-    print(_sep("═"))
-
-    client = PipelineClient(base_url=args.host, timeout=args.timeout)
-
-    # ── Server-Check ──────────────────────────────────────────────────────────
-    print()
-    client.check_server()
 
     # ── Schritt A: Task einreichen ────────────────────────────────────────────
     task_id = step_a_submit(client, task_payload)

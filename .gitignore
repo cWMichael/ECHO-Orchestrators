@@ -27,11 +27,11 @@ uv.lock
 
 # ── ECHO Orchestrator Laufzeit-Daten ─────────────────────────────────────────
 logs/
+launcher_state.json
 *.jsonl
 
 # ── PyInstaller ───────────────────────────────────────────────────────────────
 *.spec
-launcher.py
 
 # ── IDEs & Editoren ───────────────────────────────────────────────────────────
 .vscode/

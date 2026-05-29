@@ -1,0 +1,123 @@
+{
+  "ca58cc89-4d27-4fb7-a90b-c1666141e24a": {
+    "payload": {
+      "task_id": "ca58cc89-4d27-4fb7-a90b-c1666141e24a",
+      "title": "Neue API-Route f\u00fcr cyberFlow",
+      "description": "Erstelle eine neue FastAPI-Route POST /api/v1/projects mit Pydantic-Schema, Validierung und einem zugeh\u00f6rigen Service-Layer. Die Route soll ein Projekt anlegen, in der Datenbank persistieren und eine strukturierte JSON-Antwort mit HTTP 201 zur\u00fcckgeben.",
+      "worker_type": "backend_worker",
+      "priority": "normal",
+      "context": {},
+      "files": [],
+      "created_at": "2026-05-29T13:24:13.696298Z"
+    },
+    "status": "completed",
+    "model_backend": "ollama",
+    "complexity_score": 0.876,
+    "result": {
+      "task_id": "ca58cc89-4d27-4fb7-a90b-c1666141e24a",
+      "worker_type": "backend_worker",
+      "model_backend": "ollama",
+      "model_name": "qwen2.5-coder:14b",
+      "success": true,
+      "output": "## FILE: app/schemas/project.py\n```python\nfrom pydantic import BaseModel, Field\n\nclass ProjectCreate(BaseModel):\n    name: str = Field(..., min_length=1, max_length=255)\n    description: str | None = Field(None, max_length=1024)\n\nclass ProjectResponse(BaseModel):\n    id: int\n    name: str\n    description: str | None\n\n    class Config:\n        orm_mode = True\n```\n\n## FILE: app/services/project_service.py\n```python\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom sqlalchemy.future import select\nfrom sqlalchemy.orm import Session\nfrom sqlalchemy.exc import IntegrityError\n\nfrom app.models.project import Project as ProjectModel\nfrom app.schemas.project import ProjectCreate, ProjectResponse\nfrom app.exceptions.http_exceptions import HTTPException\n\nclass ProjectService:\n    async def create_project(\n        self,\n        db: AsyncSession,\n        project_data: ProjectCreate\n    ) -> ProjectResponse:\n        \"\"\"\n        Creates a new project in the database.\n\n        Args:\n            db (AsyncSession): The asynchronous database session.\n            project_data (ProjectCreate): The data for the project to be created.\n\n        Returns:\n            ProjectResponse: The created project response model.\n\n        Raises:\n            HTTPException: If there is an integrity error during creation.\n        \"\"\"\n        new_project = ProjectModel(**project_data.model_dump())\n        db.add(new_project)\n        \n        try:\n            await db.commit()\n        except IntegrityError as e:\n            await db.rollback()\n            raise HTTPException(status_code=400, detail=\"Project already exists\") from e\n        \n        await db.refresh(new_project)\n        return ProjectResponse.from_orm(new_project)\n```\n\n## FILE: app/routes/project_routes.py\n```python\nfrom fastapi import APIRouter, Depends, HTTPException\nfrom sqlalchemy.ext.asyncio import AsyncSession\n\nfrom app.dependencies import get_db\nfrom app.schemas.project import ProjectCreate, ProjectResponse\nfrom app.services.project_service import ProjectService\n\nrouter = APIRouter(prefix=\"/api/v1\", tags=[\"projects\"])\n\n@router.post(\"/projects\", response_model=ProjectResponse, status_code=201)\nasync def create_project(\n    project_data: ProjectCreate,\n    db: AsyncSession = Depends(get_db),\n    service: ProjectService = Depends(ProjectService)\n) -> ProjectResponse:\n    \"\"\"\n    Endpoint to create a new project.\n\n    Args:\n        project_data (ProjectCreate): The data for the project to be created.\n        db (AsyncSession): The asynchronous database session.\n        service (ProjectService): The project service layer.\n\n    Returns:\n        ProjectResponse: The created project response model.\n\n    Raises:\n        HTTPException: If there is an error during creation.\n    \"\"\"\n    try:\n        return await service.create_project(db, project_data)\n    except HTTPException as e:\n        raise e\n    except Exception as e:\n        raise HTTPException(status_code=500, detail=\"Internal server error\") from e\n```\n\n## FILE: app/dependencies.py\n```python\nfrom sqlalchemy.ext.asyncio import AsyncSession, create_async_engine\nfrom sqlalchemy.orm import sessionmaker\n\nDATABASE_URL = \"sqlite+aiosqlite:///./test.db\"\n\nengine = create_async_engine(DATABASE_URL, echo=True)\nAsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)\n\nasync def get_db():\n    async with AsyncSessionLocal() as db:\n        yield db\n```\n\n## FILE: app/models/project.py\n```python\nfrom sqlalchemy import Column, Integer, String, Text\nfrom sqlalchemy.ext.declarative import declarative_base\n\nBase = declarative_base()\n\nclass Project(Base):\n    __tablename__ = \"projects\"\n\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(255), unique=True, index=True)\n    description = Column(Text, nullable=True)\n```\n\n## FILE: app/exceptions/http_exceptions.py\n```python\nfrom fastapi import HTTPException\n\nclass CustomHTTPException(HTTPException):\n    def __init__(self, status_code: int, detail: str):\n        super().__init__(status_code=status_code, detail=detail)\n\ndef raise_404(detail=\"Not Found\"):\n    raise CustomHTTPException(status_code=404, detail=detail)\n```\n\n## FILE: app/main.py\n```python\nfrom fastapi import FastAPI\n\napp = FastAPI(title=\"Project Management API\", version=\"1.0.0\")\n\n# Include the project routes\nfrom app.routes.project_routes import router as projects_router\napp.include_router(projects_router)\n\n@app.on_event(\"startup\")\nasync def startup():\n    # Initialize database tables\n    pass\n\n@app.on_event(\"shutdown\")\nasync def shutdown():\n    # Clean up resources\n    pass\n```\n\nThis setup includes all the necessary components to create a FastAPI application with a POST endpoint for projects, using Pydantic for validation and SQLAlchemy for database operations. The code is structured to be production-ready, with proper exception handling and asynchronous operations.",
+      "artifacts": [
+        "app\\schemas\\project.py",
+        "app\\services\\project_service.py",
+        "app\\routes\\project_routes.py",
+        "app\\dependencies.py",
+        "app\\models\\project.py",
+        "app\\exceptions\\http_exceptions.py",
+        "app\\main.py"
+      ],
+      "error": null,
+      "completed_at": "2026-05-29T13:24:41.057731Z"
+    },
+    "approval": {
+      "task_id": "ca58cc89-4d27-4fb7-a90b-c1666141e24a",
+      "approved": true,
+      "reviewer": "Michael",
+      "comment": "Gate-1-Freigabe via run_pipeline.py",
+      "reviewed_at": "2026-05-29T13:24:17.011931Z"
+    }
+  },
+  "b2c441da-fbd4-49b7-b995-05364948e80a": {
+    "payload": {
+      "task_id": "b2c441da-fbd4-49b7-b995-05364948e80a",
+      "title": "Neue API-Route f\u00fcr cyberFlow",
+      "description": "Erstelle eine neue FastAPI-Route POST /api/v1/projects mit Pydantic-Schema, Validierung und einem zugeh\u00f6rigen Service-Layer. Die Route soll ein Projekt anlegen, in der Datenbank persistieren und eine strukturierte JSON-Antwort mit HTTP 201 zur\u00fcckgeben.",
+      "worker_type": "backend_worker",
+      "priority": "normal",
+      "context": {},
+      "files": [],
+      "created_at": "2026-05-29T14:06:15.442564Z"
+    },
+    "status": "completed",
+    "model_backend": "ollama",
+    "complexity_score": 0.876,
+    "result": {
+      "task_id": "b2c441da-fbd4-49b7-b995-05364948e80a",
+      "worker_type": "backend_worker",
+      "model_backend": "ollama",
+      "model_name": "qwen2.5-coder:14b",
+      "success": true,
+      "output": "## FILE: app/models/project.py\n```python\nfrom pydantic import BaseModel, Field\n\nclass ProjectCreate(BaseModel):\n    name: str = Field(..., min_length=1, max_length=255)\n    description: str | None = Field(None, min_length=1)\n\nclass ProjectResponse(BaseModel):\n    id: int\n    name: str\n    description: str | None\n\n    class Config:\n        orm_mode = True\n```\n\n## FILE: app/services/project_service.py\n```python\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom sqlalchemy.future import select\nfrom sqlalchemy.orm import sessionmaker\nfrom app.models.project import ProjectCreate, ProjectResponse\nfrom app.database import models\nfrom fastapi.exceptions import HTTPException\n\nasync def create_project(db: AsyncSession, project_data: ProjectCreate) -> ProjectResponse:\n    async with db.begin():\n        new_project = models.Project(**project_data.model_dump())\n        db.add(new_project)\n        await db.flush()\n    \n    return ProjectResponse.from_orm(new_project)\n```\n\n## FILE: app/routes/projects.py\n```python\nfrom fastapi import APIRouter, Depends, HTTPException\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom app.dependencies import get_db_session\nfrom app.services.project_service import create_project\nfrom app.models.project import ProjectCreate, ProjectResponse\n\nrouter = APIRouter()\n\n@router.post(\"/api/v1/projects\", response_model=ProjectResponse, status_code=201)\nasync def create_new_project(\n    project_data: ProjectCreate,\n    db: AsyncSession = Depends(get_db_session),\n):\n    \"\"\"\n    Create a new project.\n\n    Args:\n        project_data (ProjectCreate): The data for the new project.\n        db (AsyncSession): The database session.\n\n    Returns:\n        ProjectResponse: The created project with its ID.\n\n    Raises:\n        HTTPException: If there was an error creating the project.\n    \"\"\"\n    try:\n        return await create_project(db, project_data)\n    except Exception as e:\n        raise HTTPException(status_code=500, detail=\"Failed to create project\") from e\n```\n\n## FILE: app/database/__init__.py\n```python\nfrom sqlalchemy.ext.asyncio import AsyncSession, create_async_engine\nfrom sqlalchemy.orm import sessionmaker\nfrom app.database import models\n\nDATABASE_URL = \"sqlite+aiosqlite:///./test.db\"  # Replace with your database URL\n\nengine = create_async_engine(DATABASE_URL, future=True, echo=True)\nAsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)\n\nasync def get_db_session() -> AsyncSession:\n    async with AsyncSessionLocal() as session:\n        yield session\n```\n\n## FILE: app/database/models.py\n```python\nfrom sqlalchemy import Column, Integer, String, Text\nfrom sqlalchemy.ext.declarative import declarative_base\n\nBase = declarative_base()\n\nclass Project(Base):\n    __tablename__ = \"projects\"\n\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(255), nullable=False, unique=True)\n    description = Column(Text, nullable=True)\n```\n\n## FILE: app/main.py\n```python\nfrom fastapi import FastAPI\nfrom app.routes.projects import router as projects_router\n\napp = FastAPI()\n\n@app.on_event(\"startup\")\nasync def startup():\n    # Initialize database tables\n    pass\n\napp.include_router(projects_router, prefix=\"/api/v1\", tags=[\"projects\"])\n```\n\nThis code provides a complete and production-ready implementation of the specified FastAPI route with Pydantic validation, async/await usage, and a structured service layer. The necessary models, services, routes, and database setup are included.",
+      "artifacts": [
+        "app\\models\\project.py",
+        "app\\services\\project_service.py",
+        "app\\routes\\projects.py",
+        "app\\database\\__init__.py",
+        "app\\database\\models.py",
+        "app\\main.py"
+      ],
+      "error": null,
+      "completed_at": "2026-05-29T14:06:36.248576Z"
+    },
+    "approval": {
+      "task_id": "b2c441da-fbd4-49b7-b995-05364948e80a",
+      "approved": true,
+      "reviewer": "Michael",
+      "comment": "Gate-1-Freigabe via run_pipeline.py",
+      "reviewed_at": "2026-05-29T14:06:18.102423Z"
+    }
+  },
+  "a459bd6c-ea11-4eb7-a9ba-8eab07f8a5e0": {
+    "payload": {
+      "task_id": "a459bd6c-ea11-4eb7-a9ba-8eab07f8a5e0",
+      "title": "Neue API-Route f\u00fcr cyberFlow",
+      "description": "Erstelle eine neue FastAPI-Route POST /api/v1/projects mit Pydantic-Schema, Validierung und einem zugeh\u00f6rigen Service-Layer. Die Route soll ein Projekt anlegen, in der Datenbank persistieren und eine strukturierte JSON-Antwort mit HTTP 201 zur\u00fcckgeben.",
+      "worker_type": "backend_worker",
+      "priority": "normal",
+      "context": {},
+      "files": [],
+      "created_at": "2026-05-29T14:16:01.165184Z"
+    },
+    "status": "completed",
+    "model_backend": "ollama",
+    "complexity_score": 0.876,
+    "result": {
+      "task_id": "a459bd6c-ea11-4eb7-a9ba-8eab07f8a5e0",
+      "worker_type": "backend_worker",
+      "model_backend": "ollama",
+      "model_name": "qwen2.5-coder:14b",
+      "success": true,
+      "output": "## FILE: app/schemas/project.py\n```python\nfrom pydantic import BaseModel, Field, ConfigDict\n\nclass ProjectCreate(BaseModel):\n    name: str = Field(..., min_length=3, max_length=100)\n    description: str | None = Field(None, min_length=5, max_length=500)\n\n    model_config = ConfigDict(\n        json_schema_extra={\n            \"examples\": [\n                {\n                    \"name\": \"My Project\",\n                    \"description\": \"A brief description of the project.\"\n                }\n            ]\n        }\n    )\n\nclass ProjectResponse(BaseModel):\n    id: int\n    name: str\n    description: str | None\n\n    model_config = ConfigDict(from_attributes=True)\n```\n\n## FILE: app/services/project_service.py\n```python\nfrom fastapi import HTTPException, status\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom sqlalchemy.future import select\nfrom sqlalchemy.orm import Session\nfrom sqlalchemy.exc import IntegrityError\nfrom .schemas.project import ProjectCreate, ProjectResponse\nfrom ..models.project import Project\n\nasync def create_project(\n    project: ProjectCreate,\n    session: AsyncSession\n) -> ProjectResponse:\n    db_project = Project(name=project.name, description=project.description)\n    session.add(db_project)\n\n    try:\n        await session.commit()\n        await session.refresh(db_project)\n    except IntegrityError as e:\n        raise HTTPException(\n            status_code=status.HTTP_409_CONFLICT,\n            detail=\"Project with this name already exists.\"\n        ) from e\n\n    return ProjectResponse.from_orm(db_project)\n```\n\n## FILE: app/models/project.py\n```python\nfrom sqlalchemy import Column, Integer, String, Text\nfrom sqlalchemy.ext.declarative import declarative_base\n\nBase = declarative_base()\n\nclass Project(Base):\n    __tablename__ = 'projects'\n\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(100), unique=True, index=True, nullable=False)\n    description = Column(Text, nullable=True)\n```\n\n## FILE: app/routes/projects.py\n```python\nfrom fastapi import APIRouter, HTTPException, status, Depends\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom app.schemas.project import ProjectCreate, ProjectResponse\nfrom app.services.project_service import create_project\nfrom app.database import get_async_session\n\nrouter = APIRouter()\n\n@router.post(\"/api/v1/projects\", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)\nasync def create_new_project(\n    project: ProjectCreate,\n    session: AsyncSession = Depends(get_async_session)\n) -> ProjectResponse:\n    \"\"\"\n    Create a new project.\n\n    Args:\n        project (ProjectCreate): The project data to be created.\n        session (AsyncSession): The database session.\n\n    Returns:\n        ProjectResponse: The created project response.\n\n    Raises:\n        HTTPException: If the project creation fails due to conflicts or other issues.\n    \"\"\"\n    return await create_project(project, session)\n```\n\n## FILE: app/database.py\n```python\nfrom sqlalchemy.ext.asyncio import create_async_engine, AsyncSession\nfrom sqlalchemy.orm import sessionmaker\nfrom .models.project import Base\n\nDATABASE_URL = \"sqlite+aiosqlite:///./test.db\"\n\nengine = create_async_engine(DATABASE_URL, future=True, echo=True)\nAsyncSessionLocal = sessionmaker(\n    bind=engine,\n    class_=AsyncSession,\n    expire_on_commit=False\n)\n\nasync def get_async_session() -> AsyncSession:\n    async with AsyncSessionLocal() as session:\n        yield session\n\n# Initialize the database\nasync def init_db():\n    async with engine.begin() as conn:\n        await conn.run_sync(Base.metadata.create_all)\n```\n\n## FILE: app/main.py\n```python\nfrom fastapi import FastAPI, Depends\nfrom app.routes.projects import router as projects_router\nfrom app.database import get_async_session, init_db\n\napp = FastAPI()\n\n@app.on_event(\"startup\")\nasync def startup():\n    await init_db()\n\napp.include_router(projects_router)\n```\n\nThis setup includes the necessary components to create a new project via the `/api/v1/projects` endpoint using FastAPI, SQLAlchemy for async database operations, and Pydantic for data validation. The code is structured with clear separation of concerns and follows best practices for production readiness.",
+      "artifacts": [
+        "app\\schemas\\project.py",
+        "app\\services\\project_service.py",
+        "app\\models\\project.py",
+        "app\\routes\\projects.py",
+        "app\\database.py",
+        "app\\main.py"
+      ],
+      "error": null,
+      "completed_at": "2026-05-29T14:16:23.640986Z"
+    },
+    "approval": {
+      "task_id": "a459bd6c-ea11-4eb7-a9ba-8eab07f8a5e0",
+      "approved": true,
+      "reviewer": "Michael",
+      "comment": "Gate-1-Freigabe via run_pipeline.py",
+      "reviewed_at": "2026-05-29T14:16:03.592841Z"
+    }
+  }
+}

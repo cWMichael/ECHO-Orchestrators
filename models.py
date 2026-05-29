@@ -170,6 +170,65 @@ class TaskStatusResponse(BaseModel):
     created_at: datetime
 
 
+# ── Planner ──────────────────────────────────────────────────────────────────
+
+
+class PlanRequest(BaseModel):
+    """Natürlichsprachliche Eingabe von Michael → wird zu einem Task-Plan."""
+    intent: str = Field(
+        ...,
+        min_length=10,
+        description="Freiformulierter Text: Vision, Anforderung, Problem oder Funktion",
+    )
+    reviewer: str = Field(default="Michael", description="Name des Human Reviewers")
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optionaler Zusatzkontext (z.B. Projektname, Zielverzeichnis)",
+    )
+
+
+class PlannedTask(BaseModel):
+    """Ein einzelner geplanter Task innerhalb eines Plans."""
+    title: str = Field(..., min_length=3, max_length=200)
+    description: str = Field(..., min_length=10)
+    worker_type: WorkerType
+    priority: TaskPriority = TaskPriority.NORMAL
+    files: list[str] = Field(default_factory=list)
+    context: dict[str, Any] = Field(default_factory=dict)
+    rationale: str = Field(
+        default="",
+        description="Kurze Begründung warum dieser Worker und diese Priorität gewählt wurden",
+    )
+
+
+class PlanResult(BaseModel):
+    """Vollständiger Task-Plan aus natürlicher Sprache."""
+    plan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    intent: str
+    plan_title: str
+    summary: str = Field(description="2–3 Sätze was der Plan tut und warum")
+    tasks: list[PlannedTask]
+    estimated_total_tokens: int = Field(
+        default=0,
+        description="Grobe Token-Schätzung für alle Tasks zusammen",
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ApprovePlanRequest(BaseModel):
+    """Freigabe oder Ablehnung eines Plans vor der Ausführung."""
+    approved: bool
+    reviewer: str = Field(..., min_length=1)
+    comment: str = ""
+    selected_task_indices: list[int] | None = Field(
+        default=None,
+        description="Optional: nur bestimmte Tasks ausführen (0-basierter Index). "
+                    "None = alle Tasks ausführen.",
+    )
+
+
 # ── Logging / Observability ───────────────────────────────────────────────────
 
 

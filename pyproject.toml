@@ -1,0 +1,41 @@
+[project]
+name = "echo-orchestrators"
+version = "0.4.0"
+description = "Deterministische KI-Entwicklungsplattform — Human-in-the-Loop, hybrides Modell-Routing"
+requires-python = ">=3.11"
+dependencies = [
+    # Core API-Infrastruktur (optional für Remote/API-Szenarien)
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    # KI-Backend
+    "anthropic>=0.30.0",
+    # Primäre Desktop-UI
+    "pyside6>=6.6",
+    # gradio entfernt — Browser-UI deprecated, Desktop (PySide6) ist Hauptsystem
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+]
+legacy-ui = [
+    # Nur für Übergangs-/Debug-Zwecke, nicht mehr aktiv genutzt
+    "gradio>=5.0.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.uv]
+link-mode = "copy"

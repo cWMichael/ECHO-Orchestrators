@@ -1,0 +1,19 @@
+{
+  "projects": [
+    {
+      "id": "echo_c_ki",
+      "name": "ECHO_C_KI",
+      "path": "E:\\Projects\\ECHO_C_KI"
+    },
+    {
+      "id": "cyberflow",
+      "name": "cyberFlow",
+      "path": "E:\\Projects\\cyberFlow"
+    },
+    {
+      "id": "passwort_tool",
+      "name": "Passwort-Tool",
+      "path": "E:\\Projects\\Passwort-Tool"
+    }
+  ]
+}

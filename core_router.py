@@ -2,6 +2,12 @@
 ECHO Orchestrator — Core Router
 Zentrale Intelligenz-, Routing- und Kontrollschicht.
 
+Änderungen gegenüber der Originalversion:
+  - _task_store (In-Memory-Dict) ersetzt durch PersistentTaskStore
+  - Jede State-Mutation wird sofort in temp/state.json persistiert
+  - Server-Neustarts und --reload zerstören keine laufenden Tasks mehr
+  - get_store().set(task_id, state) nach jeder Zustandsänderung
+
 Pipeline (Stufe 4):
   1. Task empfangen → TaskState anlegen
   2. Complexity Score → Modell-Backend zuweisen
@@ -36,6 +42,7 @@ from models import (
     TaskStatusResponse,
     WorkerType,
 )
+from task_store import get_store  # persistenter Store — überlebt --reload
 
 if TYPE_CHECKING:
     pass
@@ -44,13 +51,10 @@ logger = logging.getLogger("echo.core_router")
 
 router = APIRouter(tags=["Orchestrator"])
 
-# In-memory task store (replace with Redis / DB in production)
-_task_store: dict[str, TaskState] = {}
-
-# Tracks feature-branch names per task_id
+# Flüchtige Dicts für Branch-Namen und Diffs — unkritisch bei Reload,
+# da sie nur während eines laufenden Gate-Flows gebraucht werden.
+# TODO Stufe 5: ebenfalls in state.json persistieren falls nötig.
 _task_branches: dict[str, str] = {}
-
-# Tracks git diffs awaiting second approval per task_id
 _task_diffs: dict[str, str] = {}
 
 
@@ -73,7 +77,6 @@ def _compute_complexity(payload: TaskPayload) -> float:
 
 
 def _assign_backend(score: float, settings: Settings) -> ModelBackend:
-    _ = (score, settings)
     return ModelBackend.OLLAMA
 
 
@@ -99,13 +102,8 @@ def _get_worker(worker_type: WorkerType, backend: ModelBackend, settings: Settin
 # ── Git Manager Factory ───────────────────────────────────────────────────────
 
 def _get_git_manager(settings: Settings) -> GitManager | None:
-    """
-    Gibt einen GitManager zurück.
-    Gibt None zurück wenn das CWD kein Git-Repo ist (z.B. in Tests),
-    damit der Server trotzdem startet — mit einer Warnung.
-    """
     try:
-        return GitManager()
+        return GitManager(repo_path=settings.project_root)
     except GitOperationError as exc:
         logger.warning(
             "GitManager konnte nicht initialisiert werden: %s. "
@@ -128,16 +126,10 @@ async def submit_task(
     request: SubmitTaskRequest,
     settings: Settings = Depends(get_settings),
 ) -> SubmitTaskResponse:
-    """
-    Nimmt einen Task entgegen, berechnet den Complexity Score,
-    weist ein Modell-Backend zu und erstellt einen isolierten Feature-Branch.
-    Danach wartet der Task auf Human-Approval (Gate 1).
-    """
     payload = TaskPayload(**request.model_dump())
     score = _compute_complexity(payload)
     backend = _assign_backend(score, settings)
 
-    # ── Feature-Branch anlegen ────────────────────────────────────────────────
     git = _get_git_manager(settings)
     branch_name: str | None = None
 
@@ -163,7 +155,6 @@ async def submit_task(
                 detail=f"Git-Fehler beim Branch-Erstellen: {exc}",
             ) from exc
 
-    # ── TaskState anlegen ─────────────────────────────────────────────────────
     initial_status = (
         TaskStatus.APPROVED
         if settings.bypass_human_gate
@@ -175,7 +166,9 @@ async def submit_task(
         model_backend=backend,
         complexity_score=score,
     )
-    _task_store[payload.task_id] = state
+
+    # Persistieren — erster Schreibvorgang für diesen Task
+    get_store().set(payload.task_id, state)
 
     logger.info(
         "Task %s eingereicht | worker=%s | backend=%s | score=%.4f | branch=%s",
@@ -208,13 +201,7 @@ async def approve_task(
     request: ApproveTaskRequest,
     settings: Settings = Depends(get_settings),
 ) -> SubmitTaskResponse:
-    """
-    Human-in-the-Loop Gate 1: Freigabe für die Worker-Ausführung.
-
-    Approved → Worker wird ausgeführt → Diff wird ermittelt → Status PENDING_DIFF.
-    Rejected → Feature-Branch wird verworfen und gelöscht → Status REJECTED.
-    """
-    state = _task_store.get(task_id)
+    state = get_store().get(task_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -234,17 +221,16 @@ async def approve_task(
     )
     state.approval = approval
 
-    # ── Rejection: Branch verwerfen ───────────────────────────────────────────
+    # ── Rejection ─────────────────────────────────────────────────────────────
     if not request.approved:
         state.status = TaskStatus.REJECTED
+        get_store().set(task_id, state)  # persistieren
+
         git = _get_git_manager(settings)
         branch_name = _task_branches.get(task_id)
         if git is not None and branch_name:
             try:
-                await asyncio.to_thread(
-                    git.discard_and_delete_branch,
-                    branch_name,
-                )
+                await asyncio.to_thread(git.discard_and_delete_branch, branch_name)
                 logger.info(
                     "Task %s abgelehnt von %s — Branch '%s' gelöscht.",
                     task_id,
@@ -252,11 +238,8 @@ async def approve_task(
                     branch_name,
                 )
             except GitOperationError as exc:
-                logger.error(
-                    "Branch '%s' konnte nicht gelöscht werden: %s",
-                    branch_name,
-                    exc,
-                )
+                logger.error("Branch '%s' konnte nicht gelöscht werden: %s", branch_name, exc)
+
         return SubmitTaskResponse(
             task_id=task_id,
             status=state.status,
@@ -265,6 +248,8 @@ async def approve_task(
 
     # ── Approval: Worker ausführen ────────────────────────────────────────────
     state.status = TaskStatus.IN_PROGRESS
+    get_store().set(task_id, state)  # persistieren
+
     logger.info(
         "Task %s freigegeben von %s — Worker %s (%s) wird gestartet.",
         task_id,
@@ -281,17 +266,17 @@ async def approve_task(
         )
         result = await worker.execute(state.payload)
         state.result = result
+        get_store().set(task_id, state)  # persistieren nach Worker-Lauf
     except Exception as exc:
         state.status = TaskStatus.FAILED
+        get_store().set(task_id, state)  # persistieren
+
         logger.exception("Worker für Task %s fehlgeschlagen.", task_id)
-        # Auch bei Worker-Fehler: Branch aufräumen
         git = _get_git_manager(settings)
         branch_name = _task_branches.get(task_id)
         if git is not None and branch_name:
             try:
-                await asyncio.to_thread(
-                    git.discard_and_delete_branch, branch_name
-                )
+                await asyncio.to_thread(git.discard_and_delete_branch, branch_name)
             except GitOperationError as cleanup_exc:
                 logger.error("Branch-Cleanup fehlgeschlagen: %s", cleanup_exc)
         raise HTTPException(
@@ -299,7 +284,7 @@ async def approve_task(
             detail=f"Worker-Ausführung fehlgeschlagen: {exc}",
         ) from exc
 
-    # ── Diff ermitteln → Gate 2 vorbereiten ───────────────────────────────────
+    # ── Diff ermitteln ────────────────────────────────────────────────────────
     git = _get_git_manager(settings)
     diff: str = ""
     if git is not None:
@@ -311,13 +296,13 @@ async def approve_task(
     if diff:
         _task_diffs[task_id] = diff
         state.status = TaskStatus.PENDING_DIFF
+        get_store().set(task_id, state)  # persistieren
+
         logger.info(
-            "Task %s wartet auf Diff-Freigabe (Gate 2). "
-            "Diff-Größe: %d Zeichen.",
+            "Task %s wartet auf Diff-Freigabe (Gate 2). Diff-Größe: %d Zeichen.",
             task_id,
             len(diff),
         )
-        # Diff in der Konsole ausgeben — sichtbar für lokale Entwicklung
         _print_diff_to_console(task_id, diff, state.payload.title)
 
         return SubmitTaskResponse(
@@ -329,8 +314,14 @@ async def approve_task(
             ),
         )
 
-    # Kein Diff → direkt abschließen (z.B. Docs-Worker schreibt nichts ins Repo)
-    state.status = TaskStatus.COMPLETED if result.success else TaskStatus.FAILED
+    # Kein Diff — Worker hat keine Dateien geschrieben
+    if result.success:
+        state.status = TaskStatus.COMPLETED
+    else:
+        state.status = TaskStatus.FAILED
+
+    get_store().set(task_id, state)  # persistieren
+
     return SubmitTaskResponse(
         task_id=task_id,
         status=state.status,
@@ -348,16 +339,7 @@ async def approve_diff(
     request: ApproveTaskRequest,
     settings: Settings = Depends(get_settings),
 ) -> SubmitTaskResponse:
-    """
-    Human-in-the-Loop Gate 2: Freigabe des generierten Code-Diffs.
-
-    Approved → git commit + push auf Feature-Branch → Status COMPLETED.
-    Rejected → git checkout . (Änderungen verworfen), Branch gelöscht → Status REJECTED.
-
-    Der Reviewer sollte den Diff vorher via GET /api/v1/tasks/{task_id}/diff
-    geprüft haben.
-    """
-    state = _task_store.get(task_id)
+    state = get_store().get(task_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -375,14 +357,14 @@ async def approve_diff(
     git = _get_git_manager(settings)
     branch_name = _task_branches.get(task_id)
 
-    # ── Rejection: Änderungen verwerfen ──────────────────────────────────────
+    # ── Rejection ─────────────────────────────────────────────────────────────
     if not request.approved:
         state.status = TaskStatus.REJECTED
+        get_store().set(task_id, state)  # persistieren
+
         if git is not None and branch_name:
             try:
-                await asyncio.to_thread(
-                    git.discard_and_delete_branch, branch_name
-                )
+                await asyncio.to_thread(git.discard_and_delete_branch, branch_name)
                 logger.info(
                     "Diff für Task %s abgelehnt von %s — Branch '%s' verworfen.",
                     task_id,
@@ -391,6 +373,7 @@ async def approve_diff(
                 )
             except GitOperationError as exc:
                 logger.error("Discard fehlgeschlagen: %s", exc)
+
         _task_diffs.pop(task_id, None)
         return SubmitTaskResponse(
             task_id=task_id,
@@ -414,10 +397,7 @@ async def approve_diff(
     commit_hash = ""
     if git is not None:
         try:
-            commit_hash = await asyncio.to_thread(
-                git.commit_and_push,
-                commit_message,
-            )
+            commit_hash = await asyncio.to_thread(git.commit_and_push, commit_message)
             logger.info(
                 "Task %s committed (%s) und gepusht von %s.",
                 task_id,
@@ -426,6 +406,7 @@ async def approve_diff(
             )
         except GitOperationError as exc:
             state.status = TaskStatus.FAILED
+            get_store().set(task_id, state)  # persistieren
             logger.error("Commit/Push für Task %s fehlgeschlagen: %s", task_id, exc)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -433,6 +414,7 @@ async def approve_diff(
             ) from exc
 
     state.status = TaskStatus.COMPLETED
+    get_store().set(task_id, state)  # persistieren
     _task_diffs.pop(task_id, None)
 
     return SubmitTaskResponse(
@@ -452,11 +434,7 @@ async def approve_diff(
     response_model=dict,
 )
 async def get_task_diff(task_id: str) -> dict:
-    """
-    Gibt den generierten Code-Diff zurück, der auf Freigabe wartet.
-    Nur verfügbar wenn Task im Status PENDING_DIFF ist.
-    """
-    state = _task_store.get(task_id)
+    state = get_store().get(task_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -478,7 +456,7 @@ async def get_task_diff(task_id: str) -> dict:
     summary="Task-Status abfragen",
 )
 async def get_task_status(task_id: str) -> TaskStatusResponse:
-    state = _task_store.get(task_id)
+    state = get_store().get(task_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -502,7 +480,7 @@ async def get_task_status(task_id: str) -> TaskStatusResponse:
     summary="Alle Tasks auflisten (paginiert)",
 )
 async def list_tasks(skip: int = 0, limit: int = 50) -> list[TaskStatusResponse]:
-    all_states = list(_task_store.values())
+    all_states = get_store().all()
     return [
         TaskStatusResponse(
             task_id=s.payload.task_id,
@@ -514,17 +492,13 @@ async def list_tasks(skip: int = 0, limit: int = 50) -> list[TaskStatusResponse]
             result=s.result,
             created_at=s.payload.created_at,
         )
-        for s in all_states[skip : skip + limit]
+        for s in all_states[skip: skip + limit]
     ]
 
 
 # ── Internal Helpers ──────────────────────────────────────────────────────────
 
 def _print_diff_to_console(task_id: str, diff: str, title: str) -> None:
-    """
-    Gibt den Diff strukturiert auf der Konsole aus.
-    Dient als visuelle Unterstützung für lokale Entwicklung und CLI-Workflows.
-    """
     separator = "─" * 72
     lines = diff.splitlines()
     preview = "\n".join(lines[:80])
